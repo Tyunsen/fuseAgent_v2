@@ -1,0 +1,176 @@
+.mermaid-board {
+  position: relative;
+}
+
+.mermaid-board::before {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgba(15, 23, 42, 0.08) 1px,
+    transparent 0
+  );
+  background-size: 20px 20px;
+  content: '';
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.mermaid-stage,
+.mermaid-stage__viewport {
+  position: relative;
+}
+
+.mermaid-stage {
+  padding: 16px;
+}
+
+.mermaid-stage__toolbar {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: 12px;
+}
+
+.mermaid-stage__hint {
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: rgb(100, 116, 139);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 6px 12px;
+  text-transform: uppercase;
+}
+
+.mermaid-board__tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  color: rgb(51, 65, 85);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.mermaid-board__tool:hover {
+  background: rgba(255, 107, 53, 0.12);
+  color: rgb(194, 65, 12);
+  transform: translateY(-1px);
+}
+
+.mermaid-stage__viewport {
+  min-height: 24rem;
+  overflow: hidden;
+  cursor: grab;
+}
+
+.mermaid-stage__viewport:active {
+  cursor: grabbing;
+}
+
+.mermaid-stage__error {
+  display: flex;
+  min-height: 22rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.mermaid-viewport {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+.mermaid-viewport svg {
+  width: max-content;
+  max-width: none;
+  height: auto;
+  overflow: visible;
+}
+
+.mermaid-viewport .labelBkg {
+  fill: transparent !important;
+  background: transparent !important;
+}
+
+.mermaid-viewport .cluster rect {
+  fill: rgba(248, 250, 252, 0.94) !important;
+  stroke: rgba(148, 163, 184, 0.85) !important;
+  stroke-dasharray: 6 6;
+  stroke-width: 1.2px !important;
+}
+
+.mermaid-viewport .flowchart-link,
+.mermaid-viewport .edge-thickness-normal,
+.mermaid-viewport .edge-thickness-thick {
+  stroke: rgba(71, 85, 105, 0.92) !important;
+  stroke-width: 1.6px !important;
+}
+
+.mermaid-viewport marker path {
+  fill: rgba(71, 85, 105, 0.92) !important;
+}
+
+.mermaid-viewport .node rect,
+.mermaid-viewport .node circle,
+.mermaid-viewport .node ellipse,
+.mermaid-viewport .node polygon,
+.mermaid-viewport .node path {
+  stroke-width: 1.6px !important;
+  filter: drop-shadow(0 16px 24px rgba(15, 23, 42, 0.12));
+}
+
+.mermaid-viewport svg g.node:nth-of-type(4n + 1) rect,
+.mermaid-viewport svg g.node:nth-of-type(4n + 1) circle,
+.mermaid-viewport svg g.node:nth-of-type(4n + 1) ellipse,
+.mermaid-viewport svg g.node:nth-of-type(4n + 1) polygon,
+.mermaid-viewport svg g.node:nth-of-type(4n + 1) path {
+  fill: #fff1e8 !important;
+  stroke: #ff6b35 !important;
+}
+
+.mermaid-viewport svg g.node:nth-of-type(4n + 2) rect,
+.mermaid-viewport svg g.node:nth-of-type(4n + 2) circle,
+.mermaid-viewport svg g.node:nth-of-type(4n + 2) ellipse,
+.mermaid-viewport svg g.node:nth-of-type(4n + 2) polygon,
+.mermaid-viewport svg g.node:nth-of-type(4n + 2) path {
+  fill: #eef6ff !important;
+  stroke: #004e89 !important;
+}
+
+.mermaid-viewport svg g.node:nth-of-type(4n + 3) rect,
+.mermaid-viewport svg g.node:nth-of-type(4n + 3) circle,
+.mermaid-viewport svg g.node:nth-of-type(4n + 3) ellipse,
+.mermaid-viewport svg g.node:nth-of-type(4n + 3) polygon,
+.mermaid-viewport svg g.node:nth-of-type(4n + 3) path {
+  fill: #eefbf6 !important;
+  stroke: #1a936f !important;
+}
+
+.mermaid-viewport svg g.node:nth-of-type(4n) rect,
+.mermaid-viewport svg g.node:nth-of-type(4n) circle,
+.mermaid-viewport svg g.node:nth-of-type(4n) ellipse,
+.mermaid-viewport svg g.node:nth-of-type(4n) polygon,
+.mermaid-viewport svg g.node:nth-of-type(4n) path {
+  fill: #f5efff !important;
+  stroke: #7b2cbf !important;
+}
+
+.mermaid-viewport .nodeLabel,
+.mermaid-viewport .label,
+.mermaid-viewport .cluster-label,
+.mermaid-viewport .edgeLabel {
+  font-weight: 600 !important;
+}

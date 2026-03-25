@@ -5,6 +5,14 @@
 **Status**: Draft  
 **Input**: User description: "$ARGUMENTS"
 
+## Scope Alignment *(mandatory)*
+
+- **Business Requirement Source**: [Cite the relevant sections in `BUSINESS-REQUIREMENTS.md`]
+- **Current Increment**: [Describe only the user-approved slice to deliver now]
+- **Out of Scope**: [List related work that is explicitly not included in this feature]
+- **Reference Reuse Candidates**: [LightRAG / llm-graph-builder / MiroFish / existing repo modules / none with reason]
+- **UI Scope**: [No UI change / UI parity-adaptation / New approved UI work]
+
 ## User Scenarios & Testing *(mandatory)*
 
 <!--
@@ -80,6 +88,8 @@
 <!--
   ACTION REQUIRED: The content in this section represents placeholders.
   Fill them out with the right functional requirements.
+  Only include requirements that belong to the current increment above.
+  Move future ideas to "Out of Scope" instead of mixing them into this spec.
 -->
 
 ### Functional Requirements

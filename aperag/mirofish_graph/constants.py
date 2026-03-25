@@ -1,0 +1,11 @@
+MIROFISH_CREATION_MODE = "mirofish_simple"
+LEGACY_CREATION_MODE = "aperag_advanced"
+
+MIROFISH_GRAPH_ENGINE = "mirofish"
+LEGACY_GRAPH_ENGINE = "lightrag"
+
+GRAPH_STATUS_WAITING_FOR_DOCUMENTS = "waiting_for_documents"
+GRAPH_STATUS_BUILDING = "building"
+GRAPH_STATUS_UPDATING = "updating"
+GRAPH_STATUS_READY = "ready"
+GRAPH_STATUS_FAILED = "failed"

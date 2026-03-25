@@ -31,7 +31,18 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+- [ ] Scope is limited to the approved increment and mapped to specific sections
+      of `BUSINESS-REQUIREMENTS.md`.
+- [ ] Out-of-scope items are explicit and are not silently included in this
+      plan.
+- [ ] Reuse candidates from `LightRAG`, `llm-graph-builder`, `MiroFish`, or
+      the existing repo are identified; any net-new code is justified.
+- [ ] UI impact matches the spec's declared UI scope: `No UI change`,
+      `UI parity/adaptation`, or `New approved UI work`.
+- [ ] Server or deployment changes, if any, follow the user-provided server
+      reference file and do not assume unsupported infrastructure.
+- [ ] Verification proves the changed behavior, especially answer/evidence/graph
+      linkage and evidence-insufficient handling when applicable.
 
 ## Project Structure
 
