@@ -19,12 +19,6 @@ cp envs/env.template .env
 docker compose up -d --pull always
 ```
 
-### 3. 启动 Neo4j（图谱功能可选）
-
-```bash
-docker compose --profile neo4j up -d
-```
-
 ## 访问地址
 
 本机运行端口：
