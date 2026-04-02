@@ -36,8 +36,9 @@ COPY . /app
 
 WORKDIR /app
 
-# Normalize shell scripts copied from Windows worktrees.
-RUN find /app/scripts -type f -name "*.sh" -exec sed -i 's/\r$//' {} +
+# Normalize shell scripts copied from Windows worktrees and ensure they stay executable.
+RUN find /app/scripts -type f -name "*.sh" -exec sed -i 's/\r$//' {} + && \
+    find /app/scripts -type f -name "*.sh" -exec chmod +x {} +
 
 # Install only the package structure without dependencies (dependencies already installed by uv)
 RUN . /opt/venv/bin/activate && pip install --no-deps -e . && \

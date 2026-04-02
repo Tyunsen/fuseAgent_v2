@@ -42,7 +42,10 @@ import {
   Trash,
 } from 'lucide-react';
 
-import { getDocumentStatusColor } from '@/app/workspace/collections/tools';
+import {
+  getDocumentStatusColor,
+  isCollectionIndexStatusVisible,
+} from '@/app/workspace/collections/tools';
 import { useCollectionContext } from '@/components/providers/collection-provider';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -108,27 +111,15 @@ export function DocumentsTable({
     objectKeys(RebuildIndexesRequestIndexTypesEnum).map((key) => {
       const accessorKey = key.toLowerCase() + '_index_status';
 
-      const config = collection.config;
-      let enabled: boolean | undefined;
-      switch (key) {
-        case 'FULLTEXT':
-          enabled = config?.enable_fulltext;
-          break;
-        case 'GRAPH':
-          enabled = config?.enable_knowledge_graph;
-          break;
-        case 'SUMMARY':
-          enabled = config?.enable_summary;
-          break;
-        case 'VECTOR':
-          enabled = config?.enable_vector;
-          break;
-        case 'VISION':
-          enabled = config?.enable_vision;
-          break;
-        default:
-          enabled = false;
-      }
+      const enabled = isCollectionIndexStatusVisible(
+        collection.config,
+        key as
+          | 'FULLTEXT'
+          | 'GRAPH'
+          | 'SUMMARY'
+          | 'VECTOR'
+          | 'VISION',
+      );
       if (enabled) {
         indexCols.push({
           accessorKey,

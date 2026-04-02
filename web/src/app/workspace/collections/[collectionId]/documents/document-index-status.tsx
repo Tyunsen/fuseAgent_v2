@@ -1,6 +1,8 @@
+import { getDocumentIndexStatusLabel } from '../../tools';
 import { Document, DocumentVectorIndexStatusEnum } from '@/api';
 import { cn } from '@/lib/utils';
 import _ from 'lodash';
+import { useLocale } from 'next-intl';
 
 const getIndexStatusBg = (status?: DocumentVectorIndexStatusEnum) => {
   const data = {
@@ -22,12 +24,15 @@ export const DocumentIndexStatus = ({
   document: Document;
   accessorKey: string;
 }) => {
+  const locale = useLocale();
   const status = _.get(document, accessorKey);
   const color = getIndexStatusBg(status);
   return (
     <div className="flex flex-row items-center gap-2">
       <div className={cn('size-1.5 rounded-4xl', color)}></div>
-      <div className="text-xs">{_.capitalize(status)}</div>
+      <div className="text-xs">
+        {getDocumentIndexStatusLabel(status, locale)}
+      </div>
     </div>
   );
 };

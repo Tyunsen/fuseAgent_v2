@@ -2,27 +2,48 @@
   "metadata": {
     "title": "Chats"
   },
-
   "hello_world": "Hi, I'm ApeRAG.",
   "rag_description": "ApeRAG is a production-ready RAG platform that combines graph, vector, and full-text search for hybrid retrieval, knowledge management, and enterprise AI applications.",
-
   "mention_a_collection": "Type @ to mention a collection...",
-
   "display_empty_title": "New chat",
-
   "no_collection_was_found": "No collection was found",
-
   "web_search": "Web search",
   "web_search_is_enabled": "Web search is enabled",
   "web_search_is_disabled": "Web search is disabled",
-
   "references": "References",
-
+  "answer_support": {
+    "graph_label": "Knowledge Graph",
+    "graph_title": "Answer Graph",
+    "graph_loading": "Loading the answer graph...",
+    "graph_empty": "No answer-linked graph is available for this response.",
+    "evidence_label": "Evidence",
+    "evidence_title": "Sources",
+    "passage_label": "Supporting Passage",
+    "page": "Page {page}",
+    "no_passage": "This source does not include an inline passage preview yet.",
+    "paragraph_not_precise": "Paragraph location not precise yet",
+    "open_source": "Open source",
+    "source_focus_title": "Source location",
+    "source_focus_description": "Jumped to the cited passage from the answer.",
+    "no_exact_excerpt": "This source currently provides only location metadata, so no exact passage excerpt is available here.",
+    "empty_reasons": {
+      "no_references": "This answer does not include usable source evidence yet.",
+      "graph_unavailable": "The answer graph is temporarily unavailable, but the answer and evidence are still available.",
+      "graph_linking_unavailable": "These sources cannot be linked back to graph evidence yet.",
+      "no_matching_graph_elements": "The cited passages did not match any graph elements that can be shown."
+    },
+    "recall_types": {
+      "vector_search": "Vector",
+      "fulltext_search": "Fulltext",
+      "graph_search": "Graph",
+      "summary_search": "Summary",
+      "vision_search": "Vision",
+      "search_collection": "Search"
+    }
+  },
   "feedback": {
     "title": "Tell Us What You Think",
-
     "choose_a_category": "Please choose a category for your feedback below.",
-
     "Harmful": {
       "title": "Harmful",
       "description": "Promotes dangerous, violent, or discriminatory acts."
@@ -43,7 +64,6 @@
       "title": "Other",
       "description": "Any issue not covered by the categories above."
     },
-
     "share_your_feedback": "Share your feedback",
     "share_your_feedback_placeholder": "Please provide your feedback so we can continue to enhance your experience."
   }

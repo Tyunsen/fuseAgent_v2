@@ -200,7 +200,6 @@ services:
       retries: 12 # 12 * 10s = 120s (2 minutes)
       start_period: 10s # Give ES some time to start up before first check
     command: bash /usr/share/elasticsearch/bin/init-es.sh
-    restart: on-failure
 
   jaeger:
     image: jaegertracing/all-in-one:1.60
@@ -214,11 +213,10 @@ services:
     environment:
       - COLLECTOR_OTLP_ENABLED=true
       - LOG_LEVEL=info
-    restart: unless-stopped
     profiles: ["jaeger"]
 
   # ==============================================
-  # Optional Services
+  # Graph Services (Neo4j - required for MiroFish graph engine)
   # ==============================================
   neo4j:
     image: neo4j:5.26.5-enterprise
@@ -233,10 +231,15 @@ services:
       - NEO4J_apoc_export_file_enabled=true
     volumes:
       - aperag-neo4j-data:/data
-    profiles: ["neo4j"]
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p password 'RETURN 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # ==============================================
-  # DocRay Services (existing profiles)
+  # DocRay Services (optional profiles)
   # ==============================================
   docray:
     image: ${REGISTRY:-docker.io}/apecloud/doc-ray:${DOCRAY_VERSION:-v0.2.0}

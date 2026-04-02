@@ -113,7 +113,7 @@ class CollectionService:
             source=(incoming_config.source if incoming_config and incoming_config.source else "system"),
             enable_vector=True,
             enable_fulltext=True,
-            enable_knowledge_graph=False,
+            enable_knowledge_graph=True,
             enable_summary=False,
             enable_vision=False,
             language=(incoming_config.language if incoming_config and incoming_config.language else "zh-CN"),
@@ -129,6 +129,33 @@ class CollectionService:
             active_graph_revision=None,
             active_graph_id=None,
             graph_last_synced_at=None,
+        )
+
+    @staticmethod
+    def _is_mirofish_config(collection_config: view_models.CollectionConfig | None) -> bool:
+        if collection_config is None:
+            return False
+        return (
+            collection_config.creation_mode == MIROFISH_CREATION_MODE
+            or collection_config.graph_engine == MIROFISH_GRAPH_ENGINE
+        )
+
+    def _normalize_mirofish_collection_config(
+        self,
+        collection_config: view_models.CollectionConfig | None,
+    ) -> view_models.CollectionConfig | None:
+        if not self._is_mirofish_config(collection_config):
+            return collection_config
+        if collection_config is None:
+            return None
+
+        return view_models.CollectionConfig(
+            **collection_config.model_dump(),
+            enable_vector=True,
+            enable_fulltext=True,
+            enable_knowledge_graph=True,
+            creation_mode=MIROFISH_CREATION_MODE,
+            graph_engine=MIROFISH_GRAPH_ENGINE,
         )
 
     async def build_collection_response(self, instance: db_models.Collection) -> view_models.Collection:
@@ -150,7 +177,7 @@ class CollectionService:
         if collection_type != db_models.CollectionType.DOCUMENT:
             raise ValidationException("collection type is not supported")
 
-        if collection_config is None or collection_config.creation_mode == MIROFISH_CREATION_MODE:
+        if collection_config is None or self._is_mirofish_config(collection_config):
             collection_config = await self._build_mirofish_collection_config(user, collection_config)
 
         is_validate, error_msg = validate_source_connect_config(collection_config)
@@ -306,7 +333,8 @@ class CollectionService:
             raise CollectionNotFoundException(collection_id)
 
         # Direct call to repository method, which handles its own transaction
-        config_str = dumpCollectionConfig(collection.config)
+        normalized_config = self._normalize_mirofish_collection_config(collection.config) or collection.config
+        config_str = dumpCollectionConfig(normalized_config)
 
         updated_instance = await self.db_ops.update_collection_by_id(
             user=user,

@@ -103,7 +103,7 @@ const legacyDefaultConfig = (locale: string): CollectionConfig => ({
 const mirofishConfigSeed = (locale: string): CollectionConfig => ({
   source: 'system',
   enable_fulltext: true,
-  enable_knowledge_graph: false,
+  enable_knowledge_graph: true,
   enable_vector: true,
   enable_summary: false,
   enable_vision: false,
@@ -112,6 +112,19 @@ const mirofishConfigSeed = (locale: string): CollectionConfig => ({
   )
     ? locale
     : 'zh-CN') as TitleGenerateRequestLanguageEnum,
+  creation_mode: CollectionConfigCreationModeEnum.mirofish_simple,
+  graph_engine: CollectionConfigGraphEngineEnum.mirofish,
+});
+
+const normalizeMirofishConfig = (
+  config: CollectionConfig | undefined,
+  locale: string,
+): CollectionConfig => ({
+  ...mirofishConfigSeed(locale),
+  ...(config || {}),
+  enable_vector: true,
+  enable_fulltext: true,
+  enable_knowledge_graph: true,
   creation_mode: CollectionConfigCreationModeEnum.mirofish_simple,
   graph_engine: CollectionConfigGraphEngineEnum.mirofish,
 });
@@ -138,7 +151,7 @@ export const CollectionForm = ({ action }: { action: 'add' | 'edit' }) => {
         title: '',
         description: '',
         type: 'document',
-        config: mirofishConfigSeed(locale),
+        config: normalizeMirofishConfig(undefined, locale),
       };
     }
 
@@ -146,11 +159,9 @@ export const CollectionForm = ({ action }: { action: 'add' | 'edit' }) => {
       title: collection?.title || '',
       description: collection?.description || '',
       type: 'document',
-      config:
-        collection?.config ||
-        (minimalMode
-          ? mirofishConfigSeed(locale)
-          : legacyDefaultConfig(locale)),
+      config: minimalMode
+        ? normalizeMirofishConfig(collection?.config, locale)
+        : collection?.config || legacyDefaultConfig(locale),
     };
   }, [
     action,
@@ -161,33 +172,59 @@ export const CollectionForm = ({ action }: { action: 'add' | 'edit' }) => {
     minimalMode,
   ]);
 
-  const CollectionConfigIndexTypes = {
-    'config.enable_vector': {
-      disabled: true,
-      title: page_collections('index_type_VECTOR.title'),
-      description: page_collections('index_type_VECTOR.description'),
-    },
-    'config.enable_fulltext': {
-      disabled: true,
-      title: page_collections('index_type_FULLTEXT.title'),
-      description: page_collections('index_type_FULLTEXT.description'),
-    },
-    'config.enable_knowledge_graph': {
-      disabled: false,
-      title: page_collections('index_type_GRAPH.title'),
-      description: page_collections('index_type_GRAPH.description'),
-    },
-    'config.enable_summary': {
-      disabled: false,
-      title: page_collections('index_type_SUMMARY.title'),
-      description: page_collections('index_type_SUMMARY.description'),
-    },
-    'config.enable_vision': {
-      disabled: false,
-      title: page_collections('index_type_VISION.title'),
-      description: page_collections('index_type_VISION.description'),
-    },
-  } as const;
+  const CollectionConfigIndexTypes = useMemo(
+    () =>
+      minimalMode
+        ? ({
+            'config.enable_vector': {
+              disabled: true,
+              title: page_collections('index_type_VECTOR.title'),
+              description: page_collections('index_type_VECTOR.description'),
+            },
+            'config.enable_fulltext': {
+              disabled: true,
+              title: page_collections('index_type_FULLTEXT.title'),
+              description: page_collections('index_type_FULLTEXT.description'),
+            },
+            'config.enable_knowledge_graph': {
+              disabled: true,
+              title: page_collections('index_type_GRAPH.title'),
+              description:
+                locale === 'zh-CN'
+                  ? '图索引始终开启，并使用必选的 MiroFish 增量建图流程。'
+                  : 'Build and update the graph with the required MiroFish incremental workflow.',
+              badge: 'MiroFish',
+            },
+          } as const)
+        : ({
+            'config.enable_vector': {
+              disabled: true,
+              title: page_collections('index_type_VECTOR.title'),
+              description: page_collections('index_type_VECTOR.description'),
+            },
+            'config.enable_fulltext': {
+              disabled: true,
+              title: page_collections('index_type_FULLTEXT.title'),
+              description: page_collections('index_type_FULLTEXT.description'),
+            },
+            'config.enable_knowledge_graph': {
+              disabled: false,
+              title: page_collections('index_type_GRAPH.title'),
+              description: page_collections('index_type_GRAPH.description'),
+            },
+            'config.enable_summary': {
+              disabled: false,
+              title: page_collections('index_type_SUMMARY.title'),
+              description: page_collections('index_type_SUMMARY.description'),
+            },
+            'config.enable_vision': {
+              disabled: false,
+              title: page_collections('index_type_VISION.title'),
+              description: page_collections('index_type_VISION.description'),
+            },
+          } as const),
+    [locale, minimalMode, page_collections],
+  );
 
   const form = useForm<FormValueType>({
     resolver: zodResolver(collectionSchema),
@@ -367,7 +404,7 @@ export const CollectionForm = ({ action }: { action: 'add' | 'edit' }) => {
             values.config ||
             collection.config ||
             (minimalMode
-              ? mirofishConfigSeed(locale)
+              ? normalizeMirofishConfig(undefined, locale)
               : legacyDefaultConfig(locale)),
         };
 
@@ -388,7 +425,7 @@ export const CollectionForm = ({ action }: { action: 'add' | 'edit' }) => {
             description: values.description,
             type: values.type,
             config: {
-              ...mirofishConfigSeed(locale),
+              ...normalizeMirofishConfig(values.config, locale),
               source: values.config?.source || 'system',
               language:
                 values.config?.language ||
@@ -420,8 +457,8 @@ export const CollectionForm = ({ action }: { action: 'add' | 'edit' }) => {
 
   const minimalHint =
     locale === 'zh-CN'
-      ? '创建后会直接进入文档页。首次添加文档时，系统会自动开始首次建图。'
-      : 'After creation you will land on the document page, and the first confirmed upload will start the initial graph build automatically.';
+      ? '创建后会直接进入文档页。上传首批文档后，系统会自动开始处理并构建首版图谱。'
+      : 'After creation you will land on the document page. Uploading your first documents will start processing and the initial graph build automatically.';
 
   return (
     <Form {...form}>
@@ -507,68 +544,74 @@ export const CollectionForm = ({ action }: { action: 'add' | 'edit' }) => {
                 </Badge>
                 <span className="text-muted-foreground">
                   {locale === 'zh-CN'
-                    ? '向量/全文检索默认开启，图谱流程按 MiroFish 方式在文档确认后自动执行。'
-                    : 'Vector/full-text retrieval stays enabled, and the MiroFish graph flow starts automatically after document confirmation.'}
+                    ? '向量和全文检索默认开启。文档加入知识库后，MiroFish 图谱流程会自动开始处理。'
+                    : 'Vector and full-text retrieval stay enabled. Once documents are added to the knowledge base, the MiroFish graph flow starts automatically.'}
                 </span>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {!minimalMode && (
-          <>
-            <Card>
-              <CardHeader>
-                <CardTitle>{page_collections('index_types')}</CardTitle>
-                <CardDescription>
-                  {page_collections('index_types_description')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                {objectKeys(CollectionConfigIndexTypes).map((key) => {
-                  const item = CollectionConfigIndexTypes[key];
-                  return (
-                    <FormField
-                      key={key}
-                      control={form.control}
-                      name={key}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel
-                            className={cn(
-                              'has-[[aria-checked=true]]:bg-accent/50 flex items-center gap-3 rounded-lg border p-3',
-                              item.disabled
-                                ? 'cursor-not-allowed'
-                                : 'hover:bg-accent/30 cursor-pointer',
-                            )}
-                          >
-                            <div className="grid gap-2">
-                              <div className="flex items-center gap-2 leading-none font-medium">
-                                {item.title}
-                                {item.disabled && (
-                                  <Badge>{page_collections('required')}</Badge>
-                                )}
-                              </div>
-                              <p className="text-muted-foreground text-sm font-medium">
-                                {item.description}
-                              </p>
+        <>
+          <Card>
+            <CardHeader>
+              <CardTitle>{page_collections('index_types')}</CardTitle>
+              <CardDescription>
+                {page_collections('index_types_description')}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              {objectKeys(CollectionConfigIndexTypes).map((key) => {
+                const item = CollectionConfigIndexTypes[key];
+                if (!item) {
+                  return null;
+                }
+                return (
+                  <FormField
+                    key={key}
+                    control={form.control}
+                    name={key}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel
+                          className={cn(
+                            'has-[[aria-checked=true]]:bg-accent/50 flex items-center gap-3 rounded-lg border p-3',
+                            item.disabled
+                              ? 'cursor-not-allowed'
+                              : 'hover:bg-accent/30 cursor-pointer',
+                          )}
+                        >
+                          <div className="grid gap-2">
+                            <div className="flex items-center gap-2 leading-none font-medium">
+                              {item.title}
+                              {item.disabled && (
+                                <Badge>{page_collections('required')}</Badge>
+                              )}
+                              {'badge' in item && item.badge && (
+                                <Badge variant="secondary">{item.badge}</Badge>
+                              )}
                             </div>
-                            <FormControl className="ml-auto">
-                              <Switch
-                                checked={Boolean(field.value)}
-                                disabled={item.disabled}
-                                onCheckedChange={field.onChange}
-                              />
-                            </FormControl>
-                          </FormLabel>
-                        </FormItem>
-                      )}
-                    />
-                  );
-                })}
-              </CardContent>
-            </Card>
+                            <p className="text-muted-foreground text-sm font-medium">
+                              {item.description}
+                            </p>
+                          </div>
+                          <FormControl className="ml-auto">
+                            <Switch
+                              checked={Boolean(field.value)}
+                              disabled={item.disabled}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormLabel>
+                      </FormItem>
+                    )}
+                  />
+                );
+              })}
+            </CardContent>
+          </Card>
 
+          {!minimalMode && (
             <Card>
               <CardHeader>
                 <CardTitle>{page_collections('model_settings')}</CardTitle>
@@ -669,8 +712,8 @@ export const CollectionForm = ({ action }: { action: 'add' | 'edit' }) => {
                 />
               </CardContent>
             </Card>
-          </>
-        )}
+          )}
+        </>
 
         <div className="flex justify-end gap-4">
           {action === 'add' && (

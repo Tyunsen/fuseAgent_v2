@@ -8,19 +8,9 @@ description: "Task list template for feature implementation"
 **Input**: Design documents from `/specs/[###-feature-name]/`
 **Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md, contracts/
 
-**Tests**: The examples below include test tasks. Include verification tasks
-whenever changed behavior needs proof; omission MUST be justified in plan.md.
+**Tests**: The examples below include test tasks. Tests are OPTIONAL - only include them if explicitly requested in the feature specification.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
-
-## Constitution Requirements
-
-- Tasks MUST stay inside the current increment defined in spec.md.
-- Add explicit reuse or adaptation tasks before net-new implementation whenever
-  reference project code is part of the solution.
-- UI tasks are allowed only when the spec's `UI Scope` authorizes them.
-- Deployment tasks are allowed only when the feature requires them and they MUST
-  follow the user-provided server reference file.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -166,6 +156,7 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
 - [ ] TXXX Security hardening
 - [ ] TXXX Run quickstart.md validation
+- [ ] TXXX Start or restart the latest applicable service stack and record the user verification access path
 
 ---
 
@@ -258,4 +249,5 @@ With multiple developers:
 - Verify tests fail before implementing
 - Commit after each task or logical group
 - Stop at any checkpoint to validate story independently
+- After major runnable implementation work, leave the latest applicable service running for user verification unless startup is not applicable or fails with a reported blocker
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence

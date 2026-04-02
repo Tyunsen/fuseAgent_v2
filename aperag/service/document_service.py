@@ -17,6 +17,7 @@ import logging
 import mimetypes
 import os
 import re
+import asyncio
 from typing import List
 
 from fastapi import HTTPException, UploadFile
@@ -41,6 +42,7 @@ from aperag.mirofish_graph.helpers import is_mirofish_collection_config
 from aperag.objectstore.base import get_async_object_store
 from aperag.schema import view_models
 from aperag.schema.view_models import Chunk, DocumentList, DocumentPreview, VisionChunk
+from aperag.schema.utils import parseCollectionConfig
 from aperag.service.mirofish_graph_service import mirofish_graph_service
 from aperag.service.marketplace_service import marketplace_service
 from aperag.utils.pagination import (
@@ -56,7 +58,14 @@ from aperag.utils.utils import calculate_file_hash, generate_vector_db_collectio
 from aperag.vectorstore.connector import VectorStoreConnectorAdaptor
 
 logger = logging.getLogger(__name__)
-MIROFISH_GRAPH_QUEUE_DELAY_SECONDS = 10
+
+
+def _build_mirofish_graph_apply_async_kwargs(collection_id: str, graph_revision: int) -> tuple[dict, int]:
+    delay_seconds = max(0, int(getattr(settings, "mirofish_graph_queue_delay_seconds", 0) or 0))
+    apply_async_kwargs = {"args": (collection_id, graph_revision)}
+    if delay_seconds > 0:
+        apply_async_kwargs["countdown"] = delay_seconds
+    return apply_async_kwargs, delay_seconds
 
 
 def _trigger_index_reconciliation():
@@ -372,7 +381,8 @@ class DocumentService:
             fulltext_index_status=indexes["FULLTEXT"]["status"] if indexes["FULLTEXT"] else "SKIPPED",
             fulltext_index_updated=indexes["FULLTEXT"]["updated_at"] if indexes["FULLTEXT"] else None,
             # Graph index information
-            graph_index_status=indexes["GRAPH"]["status"] if indexes["GRAPH"] else "SKIPPED",
+            graph_index_status=getattr(document, "mirofish_graph_status", None)
+            or (indexes["GRAPH"]["status"] if indexes["GRAPH"] else "SKIPPED"),
             graph_index_updated=indexes["GRAPH"]["updated_at"] if indexes["GRAPH"] else None,
             # Summary index information
             summary_index_status=indexes["SUMMARY"]["status"] if indexes.get("SUMMARY") else "SKIPPED",
@@ -384,6 +394,43 @@ class DocumentService:
             created=document.gmt_created,
             updated=document.gmt_updated,
         )
+
+    async def _attach_mirofish_graph_statuses(
+        self,
+        collection: db_models.Collection | None,
+        documents: list[db_models.Document],
+    ) -> None:
+        if collection is None or not documents:
+            return
+
+        config = parseCollectionConfig(collection.config)
+        if not is_mirofish_collection_config(config):
+            return
+
+        status_map = await asyncio.to_thread(
+            mirofish_graph_service.get_document_graph_statuses,
+            collection,
+            documents,
+        )
+        for document in documents:
+            document.mirofish_graph_status = status_map.get(document.id, "PENDING")
+
+    async def _query_collection_record(
+        self,
+        user: str,
+        collection_id: str,
+    ) -> db_models.Collection | None:
+        async def _execute_query(session):
+            stmt = select(db_models.Collection).where(
+                db_models.Collection.id == collection_id,
+                db_models.Collection.gmt_deleted.is_(None),
+            )
+            if user:
+                stmt = stmt.where(db_models.Collection.user == user)
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+        return await self.db_ops._execute_query(_execute_query)
 
     async def create_documents(
         self,
@@ -442,6 +489,7 @@ class DocumentService:
                     logger.info(
                         f"Document '{file_info['filename']}' already exists with same content, returning existing document {existing_doc.id}"
                     )
+                    await self._attach_mirofish_graph_statuses(collection, [existing_doc])
                     doc_response = await self._build_document_response(existing_doc)
                     documents_created.append(doc_response)
                     continue
@@ -466,6 +514,7 @@ class DocumentService:
                 )
 
                 # Build response object
+                await self._attach_mirofish_graph_statuses(collection, [document_instance])
                 doc_response = await self._build_document_response(document_instance)
                 documents_created.append(doc_response)
 
@@ -507,6 +556,15 @@ class DocumentService:
 
         async def _execute_paginated_query(session):
             from sqlalchemy import and_, desc, select
+
+            collection_stmt = select(db_models.Collection).where(
+                db_models.Collection.id == collection_id,
+                db_models.Collection.gmt_deleted.is_(None),
+            )
+            if user:
+                collection_stmt = collection_stmt.where(db_models.Collection.user == user)
+            collection_result = await session.execute(collection_stmt)
+            collection = collection_result.scalars().first()
 
             # Step 1: Build base document query for pagination (without indexes)
             base_query = select(db_models.Document).where(
@@ -575,6 +633,8 @@ class DocumentService:
                     if doc.id in indexes_by_doc:
                         doc.indexes.update(indexes_by_doc[doc.id])
 
+            await self._attach_mirofish_graph_statuses(collection, documents)
+
             # Step 3: Build document responses
             document_responses = []
             for doc in documents:
@@ -598,6 +658,8 @@ class DocumentService:
             raise DocumentNotFoundException(f"Document not found: {document_id}")
 
         document = documents[0]
+        collection = await self._query_collection_record(user, collection_id)
+        await self._attach_mirofish_graph_statuses(collection, [document])
         return await self._build_document_response(document)
 
     async def _delete_document(self, session: AsyncSession, user: str, collection_id: str, document_id: str):
@@ -1332,10 +1394,17 @@ class DocumentService:
                 if graph_revision is not None:
                     from config.celery_tasks import mirofish_collection_graph_task
 
-                    mirofish_collection_graph_task.apply_async(
-                        args=(collection_id, graph_revision),
-                        countdown=MIROFISH_GRAPH_QUEUE_DELAY_SECONDS,
+                    apply_async_kwargs, graph_delay_seconds = _build_mirofish_graph_apply_async_kwargs(
+                        collection_id,
+                        graph_revision,
                     )
+                    logger.info(
+                        "Queue MiroFish graph build for collection %s at revision %s with %s",
+                        collection_id,
+                        graph_revision,
+                        "immediate start" if graph_delay_seconds <= 0 else f"{graph_delay_seconds}s delay",
+                    )
+                    mirofish_collection_graph_task.apply_async(**apply_async_kwargs)
             except Exception as exc:
                 logger.error(
                     "Failed to queue MiroFish graph build for collection %s: %s",

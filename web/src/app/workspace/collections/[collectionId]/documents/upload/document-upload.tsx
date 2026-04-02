@@ -1,6 +1,7 @@
 'use client';
 
-import { UploadDocumentResponseStatusEnum } from '@/api';
+import type { UploadDocumentResponseStatusEnum as UploadDocumentStatus } from '@/api';
+import { isMirofishCollection } from '@/app/workspace/collections/tools';
 import { useCollectionContext } from '@/components/providers/collection-provider';
 import { Button } from '@/components/ui/button';
 import {
@@ -58,6 +59,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { defaultStyles, FileIcon } from 'react-file-icon';
 import { toast } from 'sonner';
+import { UploadDocumentResponseStatusEnum as UploadDocumentStatusEnum } from '@/api/models/upload-document-response';
 
 /**
  * A staging-area entry. Two sources:
@@ -71,15 +73,43 @@ type DocumentsWithFile = {
   filename: string;
   size: number;
   progress: number;
-  progress_status: 'pending' | 'uploading' | 'success' | 'failed';
+  progress_status:
+    | 'pending'
+    | 'uploading'
+    | 'success'
+    | 'failed'
+    | 'confirming'
+    | 'existing';
   document_id?: string;
-  status?: UploadDocumentResponseStatusEnum;
+  status?: UploadDocumentStatus;
+  error_message?: string;
+};
+
+type ImportedDocumentResult = {
+  document_id?: string;
+  filename: string;
+  size: number;
+  status?: UploadDocumentStatus | string;
+};
+
+type AutoConfirmOptions = {
+  redirectOnSuccess?: boolean;
+};
+
+type UploadBatchOutcome = {
+  acceptedDocumentIds: string[];
+  hasIssues: boolean;
 };
 
 type AsyncTask = (callback: (error?: Error | null) => void) => void;
 
 let uploadController: AbortController | undefined;
 const MAX_PARALLEL_UPLOADS = 4;
+
+const isUploadedStatus = (
+  status?: UploadDocumentStatus | string,
+): status is typeof UploadDocumentStatusEnum.UPLOADED =>
+  status === UploadDocumentStatusEnum.UPLOADED;
 
 export const DocumentUpload = () => {
   const { collection } = useCollectionContext();
@@ -91,8 +121,13 @@ export const DocumentUpload = () => {
   const [textDialogOpen, setTextDialogOpen] = useState(false);
   const [rowSelection, setRowSelection] = useState({});
   const [isUploading, setIsUploading] = useState(false);
+  const [isAutoConfirming, setIsAutoConfirming] = useState(false);
   const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 20 });
   const uploadingFilesRef = useRef<Set<string>>(new Set());
+  const confirmingIdsRef = useRef<Set<string>>(new Set());
+  const initialStagedLoadCompleteRef = useRef(false);
+  const initialStagedAutoConfirmDoneRef = useRef(false);
+  const mirofishUploadFlow = isMirofishCollection(collection.config);
 
   // ── Staged document helpers ──────────────────────────────────────────────
 
@@ -112,17 +147,26 @@ export const DocumentUpload = () => {
         filename: doc.filename,
         size: doc.size,
         document_id: doc.document_id,
-        status: doc.status as UploadDocumentResponseStatusEnum,
+        status: doc.status as UploadDocumentStatus,
         progress: 100,
         progress_status: 'success' as const,
       }));
       setDocuments((prev) => {
-        // Keep uploads that are still in progress (no document_id assigned yet)
-        const inProgress = prev.filter((d) => d.file && !d.document_id);
-        return [...staged, ...inProgress];
+        const keepLocalRows = prev.filter((doc) => {
+          if (!doc.file) {
+            return false;
+          }
+          if (!doc.document_id) {
+            return true;
+          }
+          return !isUploadedStatus(doc.status);
+        });
+        return [...staged, ...keepLocalRows];
       });
     } catch (err) {
       console.error('Failed to load staged documents', err);
+    } finally {
+      initialStagedLoadCompleteRef.current = true;
     }
   }, [collection.id]);
 
@@ -130,6 +174,204 @@ export const DocumentUpload = () => {
   useEffect(() => {
     refreshStaged();
   }, [refreshStaged]);
+
+  const mergeImportedDocuments = useCallback((items: ImportedDocumentResult[]) => {
+    if (items.length === 0) {
+      return;
+    }
+    setDocuments((prev) => {
+      const next = [...prev];
+      items.forEach((item) => {
+        const progressStatus = isUploadedStatus(item.status)
+          ? 'success'
+          : 'existing';
+        const errorMessage = isUploadedStatus(item.status)
+          ? undefined
+          : page_documents('upload_status_existing_desc');
+        const merged: DocumentsWithFile = {
+          filename: item.filename,
+          size: item.size,
+          document_id: item.document_id,
+          status: item.status as UploadDocumentStatus | undefined,
+          progress: 100,
+          progress_status: progressStatus,
+          error_message: errorMessage,
+        };
+
+        const index = next.findIndex((doc) =>
+          item.document_id
+            ? doc.document_id === item.document_id
+            : !doc.file && doc.filename === item.filename,
+        );
+        if (index >= 0) {
+          next[index] = {
+            ...next[index],
+            ...merged,
+          };
+        } else {
+          next.push(merged);
+        }
+      });
+      return next;
+    });
+  }, [page_documents]);
+
+  const navigateToDocumentsAfterUpload = useCallback(() => {
+    if (!collection.id) {
+      return;
+    }
+    router.replace(
+      `/workspace/collections/${collection.id}/documents?from=upload&processing=started`,
+    );
+  }, [collection.id, router]);
+
+  const autoConfirmDocuments = useCallback(
+    async (
+      documentIds: string[],
+      { redirectOnSuccess = false }: AutoConfirmOptions = {},
+    ) => {
+      if (!collection.id || documentIds.length === 0) {
+        return;
+      }
+
+      const uniqueIds = Array.from(new Set(documentIds)).filter((id) => {
+        if (confirmingIdsRef.current.has(id)) {
+          return false;
+        }
+        confirmingIdsRef.current.add(id);
+        return true;
+      });
+
+      if (uniqueIds.length === 0) {
+        return;
+      }
+
+      setIsAutoConfirming(true);
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          doc.document_id && uniqueIds.includes(doc.document_id)
+            ? {
+                ...doc,
+                progress_status: 'confirming',
+                error_message: undefined,
+              }
+            : doc,
+        ),
+      );
+
+      try {
+        const res =
+          await apiClient.defaultApi.collectionsCollectionIdDocumentsConfirmPost({
+            collectionId: collection.id,
+            confirmDocumentsRequest: {
+              document_ids: uniqueIds,
+            },
+          });
+
+        const failedDocuments = res.data.failed_documents || [];
+        const failedMap = new Map(
+          failedDocuments
+            .filter((item) => item.document_id)
+            .map((item) => [
+              item.document_id as string,
+              item.error || page_documents('upload_status_start_failed_desc'),
+            ]),
+        );
+        const failedIds = new Set(failedMap.keys());
+        const succeededIds = uniqueIds.filter((id) => !failedIds.has(id));
+
+        setDocuments((prev) =>
+          prev
+            .filter(
+              (doc) =>
+                !(
+                  doc.document_id &&
+                  succeededIds.includes(doc.document_id) &&
+                  isUploadedStatus(doc.status)
+                ),
+            )
+            .map((doc) =>
+              doc.document_id && failedIds.has(doc.document_id)
+                ? {
+                    ...doc,
+                    progress_status: 'failed',
+                    error_message:
+                      failedMap.get(doc.document_id) ||
+                      page_documents('upload_status_start_failed_desc'),
+                  }
+                : doc,
+            ),
+        );
+
+        if (succeededIds.length > 0) {
+          toast.success(
+            page_documents('auto_processing_started', {
+              count: String(succeededIds.length),
+            }),
+          );
+        }
+        if (failedIds.size > 0) {
+          toast.error(
+            page_documents('auto_processing_partial', {
+              succeeded: String(succeededIds.length),
+              failed: String(failedIds.size),
+            }),
+          );
+        } else if (
+          redirectOnSuccess &&
+          mirofishUploadFlow &&
+          succeededIds.length > 0
+        ) {
+          navigateToDocumentsAfterUpload();
+        }
+      } catch {
+        setDocuments((prev) =>
+          prev.map((doc) =>
+            doc.document_id && uniqueIds.includes(doc.document_id)
+              ? {
+                  ...doc,
+                  progress_status: 'failed',
+                  error_message: page_documents('upload_status_start_failed_desc'),
+                }
+              : doc,
+          ),
+        );
+        toast.error(page_documents('auto_processing_failed'));
+      } finally {
+        uniqueIds.forEach((id) => confirmingIdsRef.current.delete(id));
+        setIsAutoConfirming(false);
+      }
+    },
+    [
+      collection.id,
+      mirofishUploadFlow,
+      navigateToDocumentsAfterUpload,
+      page_documents,
+    ],
+  );
+
+  useEffect(() => {
+    if (!mirofishUploadFlow || initialStagedAutoConfirmDoneRef.current) {
+      return;
+    }
+    if (!initialStagedLoadCompleteRef.current) {
+      return;
+    }
+    initialStagedAutoConfirmDoneRef.current = true;
+    const stagedIds = documents
+      .filter(
+        (doc) =>
+          !doc.file &&
+          doc.document_id &&
+          isUploadedStatus(doc.status) &&
+          doc.progress_status === 'success',
+      )
+      .map((doc) => doc.document_id as string);
+
+    if (stagedIds.length > 0) {
+      void autoConfirmDocuments(stagedIds);
+    }
+  }, [autoConfirmDocuments, documents, mirofishUploadFlow]);
 
   // ── Import success callbacks ─────────────────────────────────────────────
 
@@ -149,8 +391,28 @@ export const DocumentUpload = () => {
         (r) => r.fetch_status === 'success' && r.document_id,
       );
       const failed = results.filter((r) => r.fetch_status === 'error');
+      const acceptedDocumentIds = succeeded
+        .filter((item) => isUploadedStatus(item.status))
+        .map((item) => item.document_id as string);
+      const hasIssues =
+        failed.length > 0 ||
+        succeeded.some((item) => !isUploadedStatus(item.status));
 
-      if (succeeded.length > 0) {
+      if (succeeded.length > 0 && mirofishUploadFlow) {
+        mergeImportedDocuments(
+          succeeded.map((item) => ({
+            document_id: item.document_id,
+            filename: item.filename || item.url,
+            size: item.size || 0,
+            status: item.status,
+          })),
+        );
+        if (acceptedDocumentIds.length > 0) {
+          void autoConfirmDocuments(acceptedDocumentIds, {
+            redirectOnSuccess: !hasIssues,
+          });
+        }
+      } else if (succeeded.length > 0) {
         toast.success(
           page_documents('import_url_success', {
             count: String(succeeded.length),
@@ -158,7 +420,7 @@ export const DocumentUpload = () => {
         );
         refreshStaged();
       }
-      if (failed.length > 0) {
+      if (failed.length > 0 && !mirofishUploadFlow) {
         toast.error(
           page_documents('import_url_partial', {
             succeeded: String(succeeded.length),
@@ -167,13 +429,37 @@ export const DocumentUpload = () => {
         );
       }
     },
-    [page_documents, refreshStaged],
+    [
+      autoConfirmDocuments,
+      mergeImportedDocuments,
+      mirofishUploadFlow,
+      page_documents,
+      refreshStaged,
+    ],
   );
 
-  const handleTextImportSuccess = useCallback(() => {
-    toast.success(page_documents('import_text_success'));
-    refreshStaged();
-  }, [page_documents, refreshStaged]);
+  const handleTextImportSuccess = useCallback(
+    (result: ImportedDocumentResult) => {
+      if (mirofishUploadFlow) {
+        mergeImportedDocuments([result]);
+        if (result.document_id && isUploadedStatus(result.status)) {
+          void autoConfirmDocuments([result.document_id], {
+            redirectOnSuccess: true,
+          });
+        }
+        return;
+      }
+      toast.success(page_documents('import_text_success'));
+      refreshStaged();
+    },
+    [
+      autoConfirmDocuments,
+      mergeImportedDocuments,
+      mirofishUploadFlow,
+      page_documents,
+      refreshStaged,
+    ],
+  );
 
   // ── Confirm (save to collection) ─────────────────────────────────────────
 
@@ -193,6 +479,13 @@ export const DocumentUpload = () => {
       router.push(`/workspace/collections/${collection.id}/documents`);
     }
   }, [collection.id, documents, router]);
+
+  const handleViewDocuments = useCallback(() => {
+    if (!collection.id) {
+      return;
+    }
+    router.push(`/workspace/collections/${collection.id}/documents`);
+  }, [collection.id, router]);
 
   // ── Upload machinery ─────────────────────────────────────────────────────
 
@@ -216,6 +509,11 @@ export const DocumentUpload = () => {
       });
 
       if (filesToUpload.length === 0) return;
+
+      const batchOutcome: UploadBatchOutcome = {
+        acceptedDocumentIds: [],
+        hasIssues: false,
+      };
 
       filesToUpload.forEach((doc) => {
         const fileKey = `${doc.file!.name}-${doc.file!.size}-${doc.file!.lastModified}`;
@@ -262,20 +560,35 @@ export const DocumentUpload = () => {
             setDocuments((docs) => {
               const doc = docs.find((d) => d.file && _.isEqual(d.file, file));
               if (doc && res.data.document_id) {
+                if (isUploadedStatus(res.data.status)) {
+                  batchOutcome.acceptedDocumentIds.push(res.data.document_id);
+                } else {
+                  batchOutcome.hasIssues = true;
+                }
                 Object.assign(doc, {
                   ...res.data,
                   progress: 100,
-                  progress_status: 'success',
+                  progress_status: isUploadedStatus(res.data.status)
+                    ? 'success'
+                    : 'existing',
+                  error_message: isUploadedStatus(res.data.status)
+                    ? undefined
+                    : page_documents('upload_status_existing_desc'),
                 });
               }
               return [...docs];
             });
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
           } catch (err) {
+            batchOutcome.hasIssues = true;
             setDocuments((docs) => {
               const doc = docs.find((d) => d.file && _.isEqual(d.file, file));
               if (doc) {
-                Object.assign(doc, { progress: 0, progress_status: 'failed' });
+                Object.assign(doc, {
+                  progress: 0,
+                  progress_status: 'failed',
+                  error_message: page_documents('upload_status_failed_desc'),
+                });
               }
               return [...docs];
             });
@@ -304,10 +617,23 @@ export const DocumentUpload = () => {
           if (err) console.error('Upload error:', err);
           else console.log('Upload completed');
           setIsUploading(false);
+
+          if (err) {
+            batchOutcome.hasIssues = true;
+          }
+
+          const acceptedDocumentIds = Array.from(
+            new Set(batchOutcome.acceptedDocumentIds),
+          );
+          if (acceptedDocumentIds.length > 0) {
+            void autoConfirmDocuments(acceptedDocumentIds, {
+              redirectOnSuccess: !batchOutcome.hasIssues,
+            });
+          }
         },
       );
     },
-    [collection.id],
+    [autoConfirmDocuments, collection?.id, page_documents],
   );
 
   const handleRemoveFile = useCallback((item: DocumentsWithFile) => {
@@ -396,11 +722,26 @@ export const DocumentUpload = () => {
               <div>{row.original.progress}%</div>
               <div
                 data-status={row.original.progress_status}
-                className="data-[status=failed]:text-red-600 data-[status=success]:text-emerald-600 data-[status=uploading]:text-amber-500"
+                className="data-[status=confirming]:text-primary data-[status=existing]:text-blue-600 data-[status=failed]:text-red-600 data-[status=success]:text-emerald-600 data-[status=uploading]:text-amber-500"
               >
-                {row.original.progress_status}
+                {row.original.progress_status === 'pending'
+                  ? page_documents('upload_status_pending')
+                  : row.original.progress_status === 'uploading'
+                    ? page_documents('upload_status_uploading')
+                    : row.original.progress_status === 'confirming'
+                      ? page_documents('upload_status_starting')
+                      : row.original.progress_status === 'existing'
+                        ? page_documents('upload_status_existing')
+                        : row.original.progress_status === 'failed'
+                          ? page_documents('upload_status_failed')
+                          : page_documents('upload_status_uploaded')}
               </div>
             </div>
+            {row.original.error_message ? (
+              <div className="text-muted-foreground mt-1 text-xs">
+                {row.original.error_message}
+              </div>
+            ) : null}
           </div>
         ),
       },
@@ -478,15 +819,28 @@ export const DocumentUpload = () => {
   );
 
   useEffect(() => {
-    if (
-      documents.length === 0 ||
-      documents.some((d) => !d.document_id || d.progress_status !== 'success')
-    ) {
-      setStep(1);
-    } else {
-      setStep(2);
+    if (!mirofishUploadFlow) {
+      if (
+        documents.length === 0 ||
+        documents.some((d) => !d.document_id || d.progress_status !== 'success')
+      ) {
+        setStep(1);
+      } else {
+        setStep(2);
+      }
+      return;
     }
-  }, [documents]);
+
+    const hasStartedWork =
+      isUploading ||
+      isAutoConfirming ||
+      documents.some((doc) =>
+        ['uploading', 'confirming', 'success', 'existing', 'failed'].includes(
+          doc.progress_status,
+        ),
+      );
+    setStep(hasStartedWork ? 2 : 1);
+  }, [documents, isAutoConfirming, isUploading, mirofishUploadFlow]);
 
   const tabBtnClass = cn(
     'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors',
@@ -563,7 +917,11 @@ export const DocumentUpload = () => {
               )}
             >
               <Bs2CircleFill className="size-5" />
-              <div>{page_documents('add_documents')}</div>
+              <div>
+                {mirofishUploadFlow
+                  ? page_documents('processing_starts_automatically')
+                  : page_documents('add_documents')}
+              </div>
             </div>
           </div>
 
@@ -583,6 +941,16 @@ export const DocumentUpload = () => {
               <Button className="cursor-pointer" onClick={stopUpload}>
                 <LoaderCircle className="animate-spin" />
                 <span className="hidden lg:inline">Stop</span>
+              </Button>
+            ) : mirofishUploadFlow ? (
+              <Button
+                className="cursor-pointer"
+                variant="outline"
+                onClick={handleViewDocuments}
+              >
+                <span className="hidden lg:inline">
+                  {page_documents('view_documents')}
+                </span>
               </Button>
             ) : (
               <Button
@@ -678,8 +1046,8 @@ export const DocumentUpload = () => {
             <DialogTitle>{page_documents('import_text_title')}</DialogTitle>
           </DialogHeader>
           <TextImport
-            onSuccess={() => {
-              handleTextImportSuccess();
+            onSuccess={(result) => {
+              handleTextImportSuccess(result);
               setTextDialogOpen(false);
             }}
           />

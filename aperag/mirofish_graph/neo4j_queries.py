@@ -6,6 +6,7 @@ SCHEMA_QUERIES = [
     "CREATE CONSTRAINT related_to_id_unique IF NOT EXISTS FOR ()-[r:RELATED_TO]-() REQUIRE r.id IS UNIQUE",
     "CREATE INDEX entity_lookup_idx IF NOT EXISTS FOR (e:Entity) ON (e.graph_id, e.entity_type, e.normalized_name)",
     "CREATE INDEX chunk_lookup_idx IF NOT EXISTS FOR (c:Chunk) ON (c.graph_id, c.document_id, c.chunk_index)",
+    "CREATE INDEX entity_graph_id_idx IF NOT EXISTS FOR (e:Entity) ON (e.graph_id)",
 ]
 
 UPSERT_GRAPH_QUERY = """
@@ -139,4 +140,121 @@ GRAPH_CHUNKS_QUERY = """
 MATCH (d:Document {graph_id: $graph_id})-[:HAS_CHUNK]->(c:Chunk {graph_id: $graph_id})
 RETURN d, c
 ORDER BY d.display_name ASC, c.chunk_index ASC
+"""
+
+GRAPH_METADATA_QUERY = """
+MATCH (g:Graph {graph_id: $graph_id})
+RETURN
+    g.graph_id AS graph_id,
+    g.project_id AS project_id,
+    g.name AS name,
+    g.description AS description,
+    g.ontology_json AS ontology_json
+LIMIT 1
+"""
+
+GRAPH_DOCUMENTS_QUERY = """
+MATCH (d:Document {graph_id: $graph_id})
+RETURN
+    d.id AS id,
+    d.filename AS filename,
+    d.display_name AS display_name,
+    d.content_checksum AS content_checksum,
+    d.updated_at AS updated_at
+ORDER BY coalesce(d.display_name, d.filename, '') ASC
+"""
+
+GRAPH_COUNTS_QUERY = """
+OPTIONAL MATCH (e:Entity {graph_id: $graph_id})
+WITH count(e) AS node_count
+OPTIONAL MATCH ()-[r:RELATED_TO {graph_id: $graph_id}]->()
+WITH node_count, count(r) AS edge_count
+OPTIONAL MATCH (c:Chunk {graph_id: $graph_id})
+RETURN node_count, edge_count, count(c) AS chunk_count
+"""
+
+BULK_LOAD_ENTITIES_QUERY = """
+MATCH (e:Entity {graph_id: $graph_id})
+RETURN
+    e.id AS id,
+    e.name AS name,
+    e.entity_type AS entity_type,
+    e.normalized_name AS normalized_name,
+    coalesce(e.aliases, []) AS aliases,
+    coalesce(e.normalized_aliases, []) AS normalized_aliases
+"""
+
+BATCH_UPSERT_CHUNKS_QUERY = """
+UNWIND $batch AS item
+MATCH (g:Graph {graph_id: item.graph_id})
+MATCH (d:Document {id: item.document_id})
+MERGE (c:Chunk {id: item.id})
+ON CREATE SET c.created_at = item.now
+SET
+    c.graph_id = item.graph_id,
+    c.project_id = item.project_id,
+    c.document_id = item.document_id,
+    c.chunk_index = item.chunk_index,
+    c.content = item.content,
+    c.content_checksum = item.content_checksum,
+    c.updated_at = item.now
+MERGE (g)-[:HAS_CHUNK]->(c)
+MERGE (d)-[:HAS_CHUNK]->(c)
+RETURN c.id AS id
+"""
+
+BATCH_UPSERT_ENTITIES_QUERY = """
+UNWIND $batch AS item
+MATCH (g:Graph {graph_id: item.graph_id})
+MATCH (c:Chunk {id: item.chunk_id})
+MERGE (e:Entity {id: item.id})
+ON CREATE SET e.created_at = item.now
+SET
+    e.graph_id = item.graph_id,
+    e.project_id = item.project_id,
+    e.name = item.name,
+    e.entity_type = item.entity_type,
+    e.normalized_name = item.normalized_name,
+    e.aliases = CASE
+        WHEN e.aliases IS NULL THEN item.aliases
+        ELSE reduce(acc = e.aliases, alias IN item.aliases |
+            CASE WHEN alias IN acc THEN acc ELSE acc + [alias] END
+        )
+    END,
+    e.normalized_aliases = CASE
+        WHEN e.normalized_aliases IS NULL THEN item.normalized_aliases
+        ELSE reduce(acc = e.normalized_aliases, alias IN item.normalized_aliases |
+            CASE WHEN alias IN acc THEN acc ELSE acc + [alias] END
+        )
+    END,
+    e.summary = CASE
+        WHEN coalesce(e.summary, '') = '' THEN item.summary
+        WHEN item.summary IS NULL OR trim(item.summary) = '' THEN e.summary
+        ELSE e.summary
+    END,
+    e.attributes_json = item.attributes_json,
+    e.updated_at = item.now
+MERGE (g)-[:HAS_ENTITY]->(e)
+MERGE (c)-[:MENTIONS]->(e)
+RETURN e.id AS id
+"""
+
+BATCH_UPSERT_RELATIONS_QUERY = """
+UNWIND $batch AS item
+MATCH (source:Entity {id: item.source_id})
+MATCH (target:Entity {id: item.target_id})
+MERGE (source)-[r:RELATED_TO {id: item.id}]->(target)
+ON CREATE SET r.created_at = item.now
+SET
+    r.graph_id = item.graph_id,
+    r.project_id = item.project_id,
+    r.name = item.name,
+    r.fact_type = item.fact_type,
+    r.fact = item.fact,
+    r.evidence = item.evidence,
+    r.confidence = item.confidence,
+    r.attributes_json = item.attributes_json,
+    r.source_chunk_id = item.source_chunk_id,
+    r.updated_at = item.now
+RETURN r.id AS id
 """
