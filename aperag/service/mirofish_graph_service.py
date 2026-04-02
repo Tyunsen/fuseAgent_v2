@@ -16,7 +16,6 @@ from aperag.mirofish_graph.constants import (
     GRAPH_STATUS_FAILED,
     GRAPH_STATUS_READY,
     GRAPH_STATUS_UPDATING,
-    GRAPH_STATUS_WAITING_FOR_DOCUMENTS,
     MIROFISH_GRAPH_ENGINE,
 )
 from aperag.mirofish_graph.graph_extractor import ChunkGraphExtractor
@@ -90,133 +89,14 @@ class MiroFishGraphService:
             logger.info("Skip MiroFish graph build for non-MiroFish collection %s", collection_id)
             return {"collection_id": collection_id, "skipped": True}
 
-        skip_result = self._skip_if_request_not_current(
-            collection_id,
-            target_revision,
-            stage="preflight",
-            collection=collection,
-            config=config,
-        )
-        if skip_result:
-            return skip_result
-
         llm_client = self._build_llm_client(collection, config)
         ontology_generator = OntologyGenerator(llm_client)
         backend = Neo4jGraphBackend(ChunkGraphExtractor(llm_client))
 
         documents = self._load_confirmed_documents(collection)
-        if not documents:
-            raise ValueError(f"No confirmed documents are available for collection {collection_id}")
-
-        if config.active_graph_id:
-            graph_metadata = backend.get_graph_metadata(config.active_graph_id)
-            if not graph_metadata:
-                raise ValueError(f"Active graph metadata is unavailable for collection {collection_id}")
-
-            graph_documents = backend.get_graph_documents(config.active_graph_id)
-            incremental_documents = self._select_incremental_documents(documents, graph_documents)
-            if not incremental_documents:
-                if not self._finalize_success(collection_id, target_revision, config.active_graph_id):
-                    return {"collection_id": collection_id, "stale": True, "graph_id": config.active_graph_id}
-                graph_data = backend.get_graph_data(config.active_graph_id)
-                return {
-                    "collection_id": collection_id,
-                    "graph_id": config.active_graph_id,
-                    "revision": target_revision,
-                    "node_count": graph_data.get("node_count", 0),
-                    "edge_count": graph_data.get("edge_count", 0),
-                    "document_count": 0,
-                    "chunk_count": 0,
-                    "no_changes": True,
-                    "incremental": True,
-                }
-
-            skip_result = self._skip_if_request_not_current(
-                collection_id,
-                target_revision,
-                stage="before_incremental_payloads",
-            )
-            if skip_result:
-                return skip_result
-
-            document_payloads = self._collect_document_payloads(collection, incremental_documents)
-            if not document_payloads:
-                if not self._finalize_success(collection_id, target_revision, config.active_graph_id):
-                    return {"collection_id": collection_id, "stale": True, "graph_id": config.active_graph_id}
-                graph_data = backend.get_graph_data(config.active_graph_id)
-                return {
-                    "collection_id": collection_id,
-                    "graph_id": config.active_graph_id,
-                    "revision": target_revision,
-                    "node_count": graph_data.get("node_count", 0),
-                    "edge_count": graph_data.get("edge_count", 0),
-                    "document_count": len(incremental_documents),
-                    "chunk_count": 0,
-                    "no_changes": True,
-                    "incremental": True,
-                }
-
-            ontology = graph_metadata.get("ontology") or {}
-            if not ontology:
-                raise ValueError(f"Active graph ontology is unavailable for collection {collection_id}")
-
-            skip_result = self._skip_if_request_not_current(
-                collection_id,
-                target_revision,
-                stage="before_incremental_append",
-            )
-            if skip_result:
-                return skip_result
-
-            project = _MiroFishProject(
-                project_id=graph_metadata.get("project_id") or f"{collection.id}:active",
-                name=collection.title or collection.id,
-            )
-            graph_data = backend.append_documents(
-                graph_id=config.active_graph_id,
-                project=project,
-                documents=document_payloads,
-                ontology=ontology,
-                graph_name=graph_metadata.get("name") or f"{collection.title or collection.id} active",
-                chunk_size=settings.mirofish_graph_chunk_size,
-                chunk_overlap=settings.mirofish_graph_chunk_overlap,
-                task_id=f"{collection.id}:{target_revision}",
-            )
-
-            if not self._finalize_success(collection_id, target_revision, config.active_graph_id):
-                return {"collection_id": collection_id, "stale": True, "graph_id": config.active_graph_id}
-
-            return {
-                "collection_id": collection_id,
-                "graph_id": config.active_graph_id,
-                "revision": target_revision,
-                "node_count": graph_data.get("node_count", 0),
-                "edge_count": graph_data.get("edge_count", 0),
-                "document_count": graph_data.get("document_count", len(document_payloads)),
-                "chunk_count": graph_data.get("chunk_count", 0),
-                "incremental": True,
-            }
-
-        skip_result = self._skip_if_request_not_current(
-            collection_id,
-            target_revision,
-            stage="before_initial_payloads",
-        )
-        if skip_result:
-            return skip_result
-
-        document_payloads = self._collect_document_payloads(collection, documents)
-        document_sections, document_texts = self._payloads_to_sections_and_texts(document_payloads)
+        document_sections, document_texts = self._collect_document_texts(collection, documents)
         if not document_sections:
             raise ValueError(f"No confirmed documents are available for collection {collection_id}")
-
-        skip_result = self._skip_if_request_not_current(
-            collection_id,
-            target_revision,
-            stage="before_initial_ontology",
-        )
-        if skip_result:
-            return skip_result
 
         ontology = ontology_generator.generate(
             document_texts=document_texts,
@@ -229,15 +109,6 @@ class MiroFishGraphService:
             name=collection.title or collection.id,
         )
         combined_text = "\n\n".join(document_sections)
-
-        skip_result = self._skip_if_request_not_current(
-            collection_id,
-            target_revision,
-            stage="before_initial_build",
-        )
-        if skip_result:
-            return skip_result
-
         graph_data = backend.build_graph(
             project=project,
             text=combined_text,
@@ -259,9 +130,6 @@ class MiroFishGraphService:
             "revision": target_revision,
             "node_count": graph_data.get("node_count", 0),
             "edge_count": graph_data.get("edge_count", 0),
-            "document_count": len(document_payloads),
-            "chunk_count": graph_data.get("chunk_count", 0),
-            "incremental": False,
         }
 
     def handle_build_failure(self, collection_id: str, target_revision: int, error: str) -> None:
@@ -322,37 +190,6 @@ class MiroFishGraphService:
         """Return raw graph data with provenance for answer-scoped graph derivation."""
         return await self._load_graph_data(user_id, collection_id)
 
-    def get_document_graph_statuses(
-        self,
-        collection: db_models.Collection,
-        documents: list[db_models.Document],
-    ) -> dict[str, str]:
-        config = parseCollectionConfig(collection.config)
-        if not is_mirofish_collection_config(config) or not documents:
-            return {}
-
-        active_graph_filenames: set[str] = set()
-        if config.active_graph_id:
-            try:
-                active_graph_filenames = self._get_active_graph_document_names(config.active_graph_id)
-            except Exception as exc:
-                logger.warning(
-                    "Failed to load active graph document snapshot for collection %s: %s",
-                    collection.id,
-                    exc,
-                )
-
-        graph_status = config.graph_status or GRAPH_STATUS_WAITING_FOR_DOCUMENTS
-        return {
-            document.id: self._derive_document_graph_status(
-                document=document,
-                graph_status=graph_status,
-                active_graph_filenames=active_graph_filenames,
-            )
-            for document in documents
-            if document.id
-        }
-
     async def _load_graph_data(self, user_id: str, collection_id: str) -> dict:
         collection = await self.db_ops.query_collection(user_id, collection_id)
         if not collection:
@@ -369,15 +206,6 @@ class MiroFishGraphService:
         backend = Neo4jGraphBackend(ChunkGraphExtractor(llm_client))
         return await asyncio.to_thread(backend.get_graph_data, config.active_graph_id)
 
-    def _get_active_graph_document_names(self, active_graph_id: str) -> set[str]:
-        backend = Neo4jGraphBackend()
-        return {
-            name
-            for document in backend.get_graph_documents(active_graph_id)
-            for name in [str(document.get("filename") or document.get("display_name") or "").strip()]
-            if name
-        }
-
     def _load_confirmed_documents(self, collection: db_models.Collection) -> list[db_models.Document]:
         documents = self.sync_db_ops.query_documents([collection.user], collection.id)
         return [
@@ -391,19 +219,13 @@ class MiroFishGraphService:
         collection: db_models.Collection,
         documents: list[db_models.Document],
     ) -> tuple[list[str], list[str]]:
-        payloads = self._collect_document_payloads(collection, documents)
-        return self._payloads_to_sections_and_texts(payloads)
-
-    def _collect_document_payloads(
-        self,
-        collection: db_models.Collection,
-        documents: list[db_models.Document],
-    ) -> list[dict[str, str]]:
-        payloads: list[dict[str, str]] = []
+        sections: list[str] = []
+        document_texts: list[str] = []
         for document in documents:
             cached_content = self._read_cached_document_markdown(document)
             if cached_content:
-                payloads.append({"filename": document.name, "content": cached_content})
+                sections.append(f"=== {document.name} ===\n{cached_content}")
+                document_texts.append(cached_content)
                 continue
 
             local_doc = None
@@ -412,7 +234,8 @@ class MiroFishGraphService:
                 content = (content or "").strip()
                 if not content:
                     continue
-                payloads.append({"filename": document.name, "content": content})
+                sections.append(f"=== {document.name} ===\n{content}")
+                document_texts.append(content)
             except Exception as exc:
                 logger.warning(
                     "Failed to parse collection document %s for MiroFish graph build: %s",
@@ -422,54 +245,7 @@ class MiroFishGraphService:
             finally:
                 if local_doc is not None:
                     cleanup_local_document(local_doc, collection)
-        return payloads
-
-    @staticmethod
-    def _payloads_to_sections_and_texts(payloads: list[dict[str, str]]) -> tuple[list[str], list[str]]:
-        sections: list[str] = []
-        document_texts: list[str] = []
-        for payload in payloads:
-            content = (payload.get("content") or "").strip()
-            filename = (payload.get("filename") or "").strip()
-            if not content or not filename:
-                continue
-            sections.append(f"=== {filename} ===\n{content}")
-            document_texts.append(content)
         return sections, document_texts
-
-    @staticmethod
-    def _select_incremental_documents(
-        documents: list[db_models.Document],
-        graph_documents: list[dict],
-    ) -> list[db_models.Document]:
-        existing_filenames = {
-            str(doc.get("filename") or doc.get("display_name") or "").strip()
-            for doc in graph_documents
-            if str(doc.get("filename") or doc.get("display_name") or "").strip()
-        }
-        return [document for document in documents if (document.name or "").strip() not in existing_filenames]
-
-    @staticmethod
-    def _derive_document_graph_status(
-        *,
-        document: db_models.Document,
-        graph_status: str,
-        active_graph_filenames: set[str],
-    ) -> str:
-        document_name = (document.name or "").strip()
-        if document_name and document_name in active_graph_filenames:
-            return db_models.DocumentIndexStatus.ACTIVE.value
-
-        if document.status == db_models.DocumentStatus.FAILED:
-            return db_models.DocumentIndexStatus.FAILED.value
-
-        if graph_status == GRAPH_STATUS_FAILED:
-            return db_models.DocumentIndexStatus.FAILED.value
-
-        if graph_status in {GRAPH_STATUS_BUILDING, GRAPH_STATUS_UPDATING}:
-            return db_models.DocumentIndexStatus.CREATING.value
-
-        return db_models.DocumentIndexStatus.PENDING.value
 
     def _read_cached_document_markdown(self, document: db_models.Document) -> str | None:
         markdown_path = f"{document.object_store_base_path()}/parsed.md"
@@ -510,10 +286,7 @@ class MiroFishGraphService:
     def _build_llm_client(self, collection: db_models.Collection, config) -> MiroFishLLMClient:
         completion = config.completion
         if not completion or not completion.model or not completion.model_service_provider:
-            raise ValueError(
-                f"集合 {collection.id} 未配置有效的 completion model。\n"
-                f"请检查集合配置中的模型设置。"
-            )
+            raise ValueError(f"Collection {collection.id} does not have a valid completion model for MiroFish graph build")
 
         api_key = self.sync_db_ops.query_provider_api_key(
             completion.model_service_provider,
@@ -525,117 +298,13 @@ class MiroFishGraphService:
             user_id=collection.user,
         )
         if not api_key:
-            raise ValueError(
-                f"LLM Provider '{completion.model_service_provider}' 未配置 API Key。\n\n"
-                f"解决方案:\n"
-                f"1. 在 UI 中进入 Settings > Models > API Keys 配置该 provider 的 API Key\n"
-                f"2. 如果使用的是本地 Ollama，可以填写任意字符串（如 'ollama'）\n"
-            )
+            raise ValueError(f"Provider {completion.model_service_provider} does not have an API key configured")
 
-        if not provider:
-            raise ValueError(
-                f"LLM Provider '{completion.model_service_provider}' 未找到。\n\n"
-                f"解决方案:\n"
-                f"1. 检查集合配置中的 model_service_provider 设置\n"
-                f"2. 在 UI 中 Settings > Models 中确认该 provider 已添加\n"
-            )
-
-        base_url = provider.base_url
-        if not base_url:
-            raise ValueError(
-                f"LLM Provider '{completion.model_service_provider}' 未配置 base_url。\n\n"
-                f"请检查 provider 配置中的 base_url 设置。"
-            )
-
+        base_url = provider.base_url if provider else None
         return MiroFishLLMClient(
             api_key=api_key,
             base_url=base_url,
             model=completion.model,
-        )
-
-    def _get_request_state(
-        self,
-        collection_id: str,
-        target_revision: int,
-        *,
-        collection: db_models.Collection | None = None,
-        config=None,
-    ) -> tuple[str, db_models.Collection, object]:
-        current_collection = collection or self.sync_db_ops.query_collection_by_id(collection_id)
-        if not current_collection:
-            raise CollectionNotFoundException(collection_id)
-
-        current_config = config or parseCollectionConfig(current_collection.config)
-        current_revision = current_config.graph_revision or 0
-        active_revision = current_config.active_graph_revision or 0
-
-        if target_revision < current_revision:
-            return "stale", current_collection, current_config
-
-        if current_config.active_graph_id and active_revision and target_revision <= active_revision:
-            return "already_synchronized", current_collection, current_config
-
-        return "current", current_collection, current_config
-
-    def _build_skip_result(
-        self,
-        collection_id: str,
-        target_revision: int,
-        *,
-        reason: str,
-        config,
-        stage: str,
-    ) -> dict:
-        result = {
-            "collection_id": collection_id,
-            "target_revision": target_revision,
-            "current_revision": config.graph_revision or 0,
-            "active_graph_revision": config.active_graph_revision,
-            "graph_id": config.active_graph_id,
-            "skipped": True,
-            "reason": reason,
-            "stage": stage,
-        }
-        if reason == "stale":
-            result["stale"] = True
-        if reason == "already_synchronized":
-            result["already_synchronized"] = True
-        return result
-
-    def _skip_if_request_not_current(
-        self,
-        collection_id: str,
-        target_revision: int,
-        *,
-        stage: str,
-        collection: db_models.Collection | None = None,
-        config=None,
-    ) -> dict | None:
-        request_state, _, current_config = self._get_request_state(
-            collection_id,
-            target_revision,
-            collection=collection,
-            config=config,
-        )
-        if request_state == "current":
-            return None
-
-        logger.info(
-            "Skip MiroFish graph build for collection %s at stage %s: request revision %s is %s "
-            "(current=%s, active=%s)",
-            collection_id,
-            stage,
-            target_revision,
-            request_state,
-            current_config.graph_revision or 0,
-            current_config.active_graph_revision,
-        )
-        return self._build_skip_result(
-            collection_id,
-            target_revision,
-            reason=request_state,
-            config=current_config,
-            stage=stage,
         )
 
     def _finalize_success(self, collection_id: str, target_revision: int, active_graph_id: str) -> bool:

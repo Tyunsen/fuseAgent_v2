@@ -149,7 +149,6 @@ class Config(BaseSettings):
     mirofish_graph_extraction_concurrency: int = Field(32, alias="GRAPH_EXTRACTION_CONCURRENCY")
     mirofish_graph_extraction_max_tokens: int = Field(1600, alias="GRAPH_EXTRACTION_MAX_TOKENS")
     mirofish_graph_extraction_max_retries: int = Field(2, alias="GRAPH_EXTRACTION_MAX_RETRIES")
-    mirofish_graph_queue_delay_seconds: int = Field(0, alias="MIROFISH_GRAPH_QUEUE_DELAY_SECONDS")
 
     # Fulltext search
     es_host: Optional[str] = Field(None, alias="ES_HOST")

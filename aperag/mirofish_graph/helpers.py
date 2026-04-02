@@ -31,13 +31,13 @@ def is_mirofish_collection_config(config: CollectionConfig | dict[str, Any] | No
 
 def build_graph_status_message(status: str, *, has_active_graph: bool = False) -> str:
     if status == GRAPH_STATUS_WAITING_FOR_DOCUMENTS:
-        return "Upload documents to start building the knowledge graph."
+        return "Waiting for the first document upload."
     if status == GRAPH_STATUS_BUILDING:
-        return "Building the first knowledge graph from the documents in this knowledge base."
+        return "Building the initial knowledge graph from confirmed documents."
     if status == GRAPH_STATUS_UPDATING:
         if has_active_graph:
-            return "Updating the graph with the latest documents added to this knowledge base."
-        return "Building the first knowledge graph with the latest documents added to this knowledge base."
+            return "Updating the graph with the latest confirmed documents."
+        return "Rebuilding the initial graph with the latest confirmed documents."
     if status == GRAPH_STATUS_READY:
         return "Knowledge graph is ready."
     if status == GRAPH_STATUS_FAILED:
