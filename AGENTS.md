@@ -1,6 +1,6 @@
 ﻿# fuseAgent Development Guidelines
 
-Auto-generated from all feature plans. Last updated: 2026-04-02
+Auto-generated from all feature plans. Last updated: 2026-04-05
 
 ## Active Technologies
 - Python 3.11.12 backend, TypeScript 5 / React 19 / Next.js 15 frontend + FastAPI, Pydantic, existing agent WebSocket chat stack, existing search and graph services, Next.js 15, next-intl, Tailwind CSS 4, `react-force-graph-2d`, framer-motion, reused MiroFish graph visual patterns (003-answer-graph-sources)
@@ -21,6 +21,14 @@ Auto-generated from all feature plans. Last updated: 2026-04-02
 - Existing PostgreSQL-backed document metadata and current collection config state; no new persistence (010-upload-completion-ux)
 - Python 3.11.12 + FastAPI service layer, SQLAlchemy-backed `db_ops`, Celery task flow, existing MiroFish graph lifecycle service, Pydantic settings (011-fix-graph-build-slow)
 - PostgreSQL collection/document metadata, object storage cached markdown, Neo4j graph storage, Redis-backed Celery broker (011-fix-graph-build-slow)
+- Python 3.11.12 backend, TypeScript 5 / React 19 / Next.js 15 frontend + FastAPI, Pydantic, SQLAlchemy-backed services, existing WebSocket chat flow, existing collection search flow, existing MiroFish graph extraction stack, existing answer graph service, Next.js 15, next-intl, Tailwind CSS 4, `react-force-graph-2d`, Mermaid (013-triple-trace-qa)
+- PostgreSQL metadata, existing vector store, Elasticsearch fulltext index, LightRAG graph/search artifacts, Neo4j-backed MiroFish graph data, existing reference metadata carried in `Reference.metadata` (013-triple-trace-qa)
+- Python 3.11.12 backend, TypeScript 5 / React 19 / Next.js 15 frontend + FastAPI, Pydantic, SQLAlchemy-backed services, existing WebSocket chat flow, existing trace-support service, existing answer graph service, Next.js 15, next-intl, Tailwind CSS 4, `react-force-graph-2d`, Mermaid (015-qa-mode-display)
+- PostgreSQL metadata, existing vector store, Elasticsearch fulltext index, Neo4j-backed MiroFish graph data, existing `Reference.metadata` for answer source binding (015-qa-mode-display)
+- Python 3.11.12 backend, TypeScript 5 / React 19 / Next.js 15 frontend + FastAPI, Pydantic, SQLAlchemy-backed services, existing WebSocket chat flow, existing trace-support service, existing answer graph service, Next.js 15, next-intl, Tailwind CSS 4, Mermaid, existing drawer UI primitives, `react-force-graph-2d` (016-gantt-source-citations)
+- PostgreSQL metadata, existing vector store, Elasticsearch fulltext index, Neo4j-backed MiroFish graph data, existing `Reference.metadata`, existing stored chat message history (016-gantt-source-citations)
+- Python 3.11.12 backend, TypeScript 5 / React 19 / Next.js 15 frontend + FastAPI, Pydantic, SQLAlchemy-backed services, existing WebSocket chat flow, existing trace-support service, existing answer graph service, existing chat markdown renderer, Next.js 15, next-intl, Tailwind CSS 4, Mermaid, `react-force-graph-2d` (017-trace-graph-citations)
+- PostgreSQL metadata, existing vector store, Elasticsearch fulltext index, Neo4j-backed MiroFish graph data, existing `Reference.metadata`, existing chat history storage (017-trace-graph-citations)
 
 - Python 3.11.12 backend, TypeScript 5 / React 19 / Next.js 15 frontend + ApeRAG backend stack, Celery, SQLAlchemy/FastAPI-adjacent service layer, Next.js 15, next-intl, Tailwind CSS 4, Radix UI (001-aperag-home-adapt)
 
@@ -41,9 +49,9 @@ cd src; pytest; ruff check .
 Python 3.11.12 backend, TypeScript 5 / React 19 / Next.js 15 frontend: Follow standard conventions
 
 ## Recent Changes
-- 011-fix-graph-build-slow: Added Python 3.11.12 + FastAPI service layer, SQLAlchemy-backed `db_ops`, Celery task flow, existing MiroFish graph lifecycle service, Pydantic settings
-- 010-upload-completion-ux: Added TypeScript 5 / React 19 / Next.js 15 frontend within the existing full-stack application + existing ApeRAG upload/confirm APIs, existing MiroFish collection detection helpers, `next/navigation`, `next-intl`, existing `Alert` UI component
-- 009-mirofish-build-speed: Added Python 3.11.12 + FastAPI service layer, SQLAlchemy-backed `db_ops`, existing Celery task flow, existing MiroFish graph lifecycle service, Neo4j-backed graph backend
+- 017-trace-graph-citations: Added Python 3.11.12 backend, TypeScript 5 / React 19 / Next.js 15 frontend + FastAPI, Pydantic, SQLAlchemy-backed services, existing WebSocket chat flow, existing trace-support service, existing answer graph service, existing chat markdown renderer, Next.js 15, next-intl, Tailwind CSS 4, Mermaid, `react-force-graph-2d`
+- 016-gantt-source-citations: Added Python 3.11.12 backend, TypeScript 5 / React 19 / Next.js 15 frontend + FastAPI, Pydantic, SQLAlchemy-backed services, existing WebSocket chat flow, existing trace-support service, existing answer graph service, Next.js 15, next-intl, Tailwind CSS 4, Mermaid, existing drawer UI primitives, `react-force-graph-2d`
+- 015-qa-mode-display: Added Python 3.11.12 backend, TypeScript 5 / React 19 / Next.js 15 frontend + FastAPI, Pydantic, SQLAlchemy-backed services, existing WebSocket chat flow, existing trace-support service, existing answer graph service, Next.js 15, next-intl, Tailwind CSS 4, `react-force-graph-2d`, Mermaid
 
 
 <!-- MANUAL ADDITIONS START -->

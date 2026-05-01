@@ -25,11 +25,20 @@ import {
 } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent } from '@/components/ui/tooltip';
+import {
+  createKnowledgeGraphColorScale,
+  getKnowledgeGraphLinkColor,
+  getKnowledgeGraphLinkDirectionalParticleWidth,
+  getKnowledgeGraphLinkWidth,
+  getKnowledgeGraphNodeDisplayName,
+  paintKnowledgeGraphNodePointerArea,
+  renderKnowledgeGraphNode,
+  resolveKnowledgeGraphNodeId,
+} from '@/components/knowledge-graph/force-graph-renderer';
 import { apiClient } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 import { TooltipTrigger } from '@radix-ui/react-tooltip';
 import Color from 'color';
-import * as d3 from 'd3';
 import _ from 'lodash';
 import {
   Check,
@@ -68,11 +77,7 @@ type SelectedElement =
   | { type: 'edge'; edge: GraphEdge }
   | null;
 
-const resolveNodeId = (value: string | GraphNode | undefined) =>
-  typeof value === 'string' ? value : value?.id;
-
-const getNodeDisplayName = (node?: Partial<GraphNode> | null) =>
-  String(node?.properties?.entity_name || node?.id || '');
+const getNodeDisplayName = getKnowledgeGraphNodeDisplayName;
 
 export const CollectionGraph = ({
   marketplace = false,
@@ -118,8 +123,7 @@ export const CollectionGraph = ({
   const [highlightNodes, setHighlightNodes] = useState<Set<GraphNode>>(new Set());
   const [highlightLinks, setHighlightLinks] = useState<Set<GraphEdge>>(new Set());
   const [hoverNodeId, setHoverNodeId] = useState<string>();
-  const color = useMemo(() => d3.scaleOrdinal(d3.schemeTableau10), []);
-
+  const color = useMemo(() => createKnowledgeGraphColorScale(), []);
   const { NODE_MIN, NODE_MAX, NODE_FONT_MIN, NODE_FONT_MAX } = useMemo(
     () => ({
       NODE_MIN: 10,
@@ -191,7 +195,7 @@ export const CollectionGraph = ({
               outbound_count: outboundCount,
               degree_count: degreeCount,
             },
-            value: Math.max(inboundCount, outboundCount, NODE_MIN),
+            value: Math.max(inboundCount, outboundCount, 10),
           };
         }) || [];
 
@@ -199,7 +203,7 @@ export const CollectionGraph = ({
     } finally {
       setLoading(false);
     }
-  }, [NODE_MIN, marketplace, params.collectionId]);
+  }, [marketplace, params.collectionId]);
 
   const getMergeSuggestions = useCallback(async () => {
     if (typeof params.collectionId !== 'string' || marketplace || isMirofish) {
@@ -231,8 +235,8 @@ export const CollectionGraph = ({
     const adjacency = new Map<string, GraphEdge[]>();
 
     (graphData?.links || []).forEach((link) => {
-      const sourceId = resolveNodeId(link.source);
-      const targetId = resolveNodeId(link.target);
+      const sourceId = resolveKnowledgeGraphNodeId(link.source);
+      const targetId = resolveKnowledgeGraphNodeId(link.target);
 
       if (sourceId) {
         adjacency.set(sourceId, [...(adjacency.get(sourceId) || []), link]);
@@ -302,8 +306,8 @@ export const CollectionGraph = ({
       return {};
     }
 
-    const sourceId = resolveNodeId(selectedEdge.source);
-    const targetId = resolveNodeId(selectedEdge.target);
+    const sourceId = resolveKnowledgeGraphNodeId(selectedEdge.source);
+    const targetId = resolveKnowledgeGraphNodeId(selectedEdge.target);
 
     return {
       sourceNode: sourceId ? nodeById.get(sourceId) : undefined,
@@ -327,8 +331,8 @@ export const CollectionGraph = ({
   const visibleLinksCount = useMemo(
     () =>
       (graphData?.links || []).filter((link) => {
-        const sourceId = resolveNodeId(link.source);
-        const targetId = resolveNodeId(link.target);
+        const sourceId = resolveKnowledgeGraphNodeId(link.source);
+        const targetId = resolveKnowledgeGraphNodeId(link.target);
         return (
           (sourceId ? visibleNodeIds.has(sourceId) : false) &&
           (targetId ? visibleNodeIds.has(targetId) : false)
@@ -366,11 +370,11 @@ export const CollectionGraph = ({
     }
 
     if (selected.type === 'node') {
-      return getNodeDisplayName(selected.node);
+      return getKnowledgeGraphNodeDisplayName(selected.node);
     }
 
-    const sourceName = getNodeDisplayName(selectedEdgeNodes.sourceNode);
-    const targetName = getNodeDisplayName(selectedEdgeNodes.targetNode);
+    const sourceName = getKnowledgeGraphNodeDisplayName(selectedEdgeNodes.sourceNode);
+    const targetName = getKnowledgeGraphNodeDisplayName(selectedEdgeNodes.targetNode);
     return `${sourceName} → ${targetName}`;
   }, [pageGraph, selected, selectedEdgeNodes.sourceNode, selectedEdgeNodes.targetNode]);
 
@@ -459,8 +463,8 @@ export const CollectionGraph = ({
 
       nodeLinks.forEach((link) => {
         nextHighlightLinks.add(link);
-        const sourceId = resolveNodeId(link.source);
-        const targetId = resolveNodeId(link.target);
+        const sourceId = resolveKnowledgeGraphNodeId(link.source);
+        const targetId = resolveKnowledgeGraphNodeId(link.target);
         const sourceNode = sourceId ? nodeById.get(sourceId) : undefined;
         const targetNode = targetId ? nodeById.get(targetId) : undefined;
         if (sourceNode) {
@@ -648,7 +652,7 @@ export const CollectionGraph = ({
                             <CommandItem
                               key={key}
                               className="capitalize"
-                              value={getNodeDisplayName(node)}
+                              value={getKnowledgeGraphNodeDisplayName(node)}
                               onSelect={() => {
                                 const entityType = node.properties?.entity_type;
                                 if (entityType) {
@@ -664,7 +668,7 @@ export const CollectionGraph = ({
                               }}
                             >
                               <div className="truncate">
-                                {getNodeDisplayName(node)}
+                                {getKnowledgeGraphNodeDisplayName(node)}
                               </div>
                               <Check
                                 className={cn(
@@ -791,7 +795,9 @@ export const CollectionGraph = ({
                 width={dimensions.width}
                 height={dimensions.height}
                 ref={graphRef}
-                nodeLabel={(node) => getNodeDisplayName(node as GraphNode)}
+                nodeLabel={(node) =>
+                  getKnowledgeGraphNodeDisplayName(node as GraphNode)
+                }
                 linkLabel={(link) =>
                   String(
                     (link as GraphEdge).type ||
@@ -804,8 +810,12 @@ export const CollectionGraph = ({
                   return !entityType || activeEntities.includes(entityType);
                 }}
                 linkVisibility={(link) => {
-                  const sourceId = resolveNodeId(link.source as string | GraphNode);
-                  const targetId = resolveNodeId(link.target as string | GraphNode);
+                  const sourceId = resolveKnowledgeGraphNodeId(
+                    link.source as string | GraphNode,
+                  );
+                  const targetId = resolveKnowledgeGraphNodeId(
+                    link.target as string | GraphNode,
+                  );
                   return (
                     (sourceId ? visibleNodeIds.has(sourceId) : false) &&
                     (targetId ? visibleNodeIds.has(targetId) : false)
@@ -834,8 +844,8 @@ export const CollectionGraph = ({
                     clearSelection();
                     return;
                   }
-                  const sourceId = resolveNodeId(nextLink.source);
-                  const targetId = resolveNodeId(nextLink.target);
+                  const sourceId = resolveKnowledgeGraphNodeId(nextLink.source);
+                  const targetId = resolveKnowledgeGraphNodeId(nextLink.target);
                   const sourceType = sourceId
                     ? nodeById.get(sourceId)?.properties?.entity_type
                     : undefined;
@@ -867,8 +877,8 @@ export const CollectionGraph = ({
                     }
 
                     (linksByNode.get(hoveredNodeId) || []).forEach((link) => {
-                      const sourceId = resolveNodeId(link.source);
-                      const targetId = resolveNodeId(link.target);
+                      const sourceId = resolveKnowledgeGraphNodeId(link.source);
+                      const targetId = resolveKnowledgeGraphNodeId(link.target);
                       nextHighlightLinks.add(link);
                       if (sourceId && nodeById.get(sourceId)) {
                         nextHighlightNodes.add(nodeById.get(sourceId)!);
@@ -897,8 +907,12 @@ export const CollectionGraph = ({
                     const hoveredEdge = link as GraphEdge;
                     nextHighlightLinks.add(hoveredEdge);
 
-                    const sourceId = resolveNodeId(hoveredEdge.source);
-                    const targetId = resolveNodeId(hoveredEdge.target);
+                    const sourceId = resolveKnowledgeGraphNodeId(
+                      hoveredEdge.source,
+                    );
+                    const targetId = resolveKnowledgeGraphNodeId(
+                      hoveredEdge.target,
+                    );
                     const sourceNode = sourceId ? nodeById.get(sourceId) : undefined;
                     const targetNode = targetId ? nodeById.get(targetId) : undefined;
 
@@ -914,6 +928,18 @@ export const CollectionGraph = ({
                   setHighlightLinks(nextHighlightLinks);
                 }}
                 nodeCanvasObject={(node, ctx) => {
+                  renderKnowledgeGraphNode({
+                    node: node as GraphNode,
+                    ctx,
+                    colorScale: color,
+                    resolvedTheme,
+                    isNodeHighlighted: (currentNode) =>
+                      highlightNodes.size === 0 ||
+                      highlightNodes.has(currentNode as GraphNode),
+                    isNodeHovered: (currentNode) =>
+                      hoverNodeId === String(currentNode.id),
+                  });
+                  return;
                   const x = node.x || 0;
                   const y = node.y || 0;
                   const nodeSize = Math.min(node.value || NODE_MIN, NODE_MAX);
@@ -975,6 +1001,12 @@ export const CollectionGraph = ({
                   );
                 }}
                 nodePointerAreaPaint={(node, paintColor, ctx) => {
+                  paintKnowledgeGraphNodePointerArea({
+                    node: node as GraphNode,
+                    paintColor,
+                    ctx,
+                  });
+                  return;
                   const x = node.x || 0;
                   const y = node.y || 0;
                   const size = Math.min(node.value || NODE_MIN, NODE_MAX);
@@ -984,15 +1016,31 @@ export const CollectionGraph = ({
                   ctx.fill();
                 }}
                 linkColor={(link) => {
+                  return getKnowledgeGraphLinkColor({
+                    link: link as GraphEdge,
+                    resolvedTheme,
+                    isLinkHighlighted: (currentLink) =>
+                      highlightLinks.has(currentLink as GraphEdge),
+                  });
                   const isActive = highlightLinks.has(link as GraphEdge);
                   if (resolvedTheme === 'dark') {
                     return isActive ? '#A3A3A3' : '#3F3F46';
                   }
                   return isActive ? '#737373' : '#D4D4D8';
                 }}
-                linkWidth={(link) => (highlightLinks.has(link as GraphEdge) ? 2.5 : 1)}
+                linkWidth={(link) =>
+                  getKnowledgeGraphLinkWidth(
+                    link as GraphEdge,
+                    (currentLink) =>
+                      highlightLinks.has(currentLink as GraphEdge),
+                  )
+                }
                 linkDirectionalParticleWidth={(link) =>
-                  highlightLinks.has(link as GraphEdge) ? 3.5 : 0
+                  getKnowledgeGraphLinkDirectionalParticleWidth(
+                    link as GraphEdge,
+                    (currentLink) =>
+                      highlightLinks.has(currentLink as GraphEdge),
+                  )
                 }
                 linkDirectionalParticles={2}
               />

@@ -86,6 +86,12 @@ export interface ChatMessage {
      * @memberof ChatMessage
      */
     'files'?: Array<any>;
+    /**
+     * Trace mode used for this chat turn
+     * @type {string}
+     * @memberof ChatMessage
+     */
+    'trace_mode'?: ChatMessageTraceModeEnum;
 }
 
 export const ChatMessageTypeEnum = {
@@ -106,5 +112,13 @@ export const ChatMessageRoleEnum = {
 } as const;
 
 export type ChatMessageRoleEnum = typeof ChatMessageRoleEnum[keyof typeof ChatMessageRoleEnum];
+export const ChatMessageTraceModeEnum = {
+    default: 'default',
+    time: 'time',
+    space: 'space',
+    entity: 'entity'
+} as const;
+
+export type ChatMessageTraceModeEnum = typeof ChatMessageTraceModeEnum[keyof typeof ChatMessageTraceModeEnum];
 
 

@@ -169,6 +169,27 @@ export const getDocumentIndexStatusVariant = (
   }
 };
 
+export const getMirofishDocumentGraphStatus = (
+  collectionConfig: CollectionConfig | null | undefined,
+): DocumentIndexStatusValue => {
+  const graphStatus =
+    collectionConfig?.graph_status ||
+    CollectionConfigGraphStatusEnum.waiting_for_documents;
+
+  switch (graphStatus) {
+    case CollectionConfigGraphStatusEnum.ready:
+      return DocumentVectorIndexStatusEnum.ACTIVE;
+    case CollectionConfigGraphStatusEnum.failed:
+      return DocumentVectorIndexStatusEnum.FAILED;
+    case CollectionConfigGraphStatusEnum.waiting_for_documents:
+      return DocumentVectorIndexStatusEnum.PENDING;
+    case CollectionConfigGraphStatusEnum.building:
+    case CollectionConfigGraphStatusEnum.updating:
+    default:
+      return DocumentVectorIndexStatusEnum.CREATING;
+  }
+};
+
 export const canUseLegacyGraphSearch = (
   collectionConfig?: CollectionConfig | null,
 ) =>

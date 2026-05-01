@@ -5,6 +5,7 @@ from typing import Any
 
 from aperag.config import settings
 
+from .helpers import sanitize_graph_attributes
 from .llm_client import MiroFishLLMClient
 
 logger = logging.getLogger(__name__)
@@ -19,6 +20,10 @@ Rules:
 - Keep entity names in the source-language form used by the chunk when possible.
 - Keep evidence short and grounded in the source text.
 - Do not invent unsupported facts.
+- Favor recall over excessive summarization: when the chunk supports multiple distinct entities or relations, extract all materially distinct ones that are evidenced in the chunk.
+- Preserve concrete actors, places, activities, statements, and their supported links whenever they add graph coverage.
+- Preserve time/place attributes only when the chunk explicitly supports them.
+- For trace attributes, only use: time, time_start, time_end, time_label, place, place_normalized, place_aliases.
 - If the chunk has no useful entities or relations, return empty arrays.
 """
 
@@ -91,6 +96,13 @@ Return this JSON structure:
   ]
 }}
 
+Trace attribute guidance:
+- If the chunk explicitly states when an entity exists, acts, appears, or is relevant, put that evidence-backed value into entity.attributes using the trace keys above.
+- If the chunk explicitly states where an entity exists, acts, appears, or is relevant, put that evidence-backed value into entity.attributes using the trace keys above.
+- If the chunk explicitly states when or where a relation/fact holds, put that evidence-backed value into relation.attributes using the trace keys above.
+- Never infer missing time/place values from background knowledge.
+- Prefer more supported graph facts to fewer summarized facts. If one chunk contains several supported relations, extract each distinct relation instead of collapsing them into one broad statement.
+
 Text chunk:
 \"\"\"
 {chunk_text}
@@ -137,7 +149,7 @@ Text chunk:
             name = str(entity.get("name", "") or "").strip()
             if not name or entity_type not in allowed_entity_types:
                 continue
-            attributes = entity.get("attributes") if isinstance(entity.get("attributes"), dict) else {}
+            attributes = sanitize_graph_attributes(entity.get("attributes"))
             aliases = self._sanitize_aliases(entity.get("aliases"))
             entities.append(
                 {
@@ -175,7 +187,7 @@ Text chunk:
                     "fact": str(relation.get("fact", "") or "").strip(),
                     "evidence": str(relation.get("evidence", "") or "").strip(),
                     "confidence": max(0.0, min(float(confidence), 1.0)),
-                    "attributes": relation.get("attributes") if isinstance(relation.get("attributes"), dict) else {},
+                    "attributes": sanitize_graph_attributes(relation.get("attributes")),
                 }
             )
 

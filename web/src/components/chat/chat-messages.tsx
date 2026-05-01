@@ -79,6 +79,7 @@ export const ChatMessages = ({ chat }: { chat: ChatDetails }) => {
                 part.references = Array.isArray(fragment.data)
                   ? (fragment.data as Reference[])
                   : [];
+                part.trace_mode = fragment.trace_mode || part.trace_mode;
               } else {
                 parts.push({
                   ...fragment,
@@ -93,6 +94,7 @@ export const ChatMessages = ({ chat }: { chat: ChatDetails }) => {
               const part = parts.find((p) => p.type === 'message');
               if (part) {
                 part.data = (part.data || '') + fragment.data;
+                part.trace_mode = fragment.trace_mode || part.trace_mode;
               } else {
                 parts.push(fragment);
               }
@@ -111,6 +113,7 @@ export const ChatMessages = ({ chat }: { chat: ChatDetails }) => {
                     references,
                     data: '',
                     role: 'ai',
+                    trace_mode: fragment.trace_mode,
                   });
                 }
               }
@@ -125,6 +128,7 @@ export const ChatMessages = ({ chat }: { chat: ChatDetails }) => {
               );
               if (part) {
                 part.data = (part.data || '') + fragment.data;
+                part.trace_mode = fragment.trace_mode || part.trace_mode;
               } else {
                 parts.push(fragment);
               }
@@ -161,6 +165,7 @@ export const ChatMessages = ({ chat }: { chat: ChatDetails }) => {
         role: 'human',
         data: params.query,
         timestamp,
+        trace_mode: params.trace_mode,
       };
       setMessages((msgs) => {
         msgs?.push([part]);
@@ -268,6 +273,12 @@ export const ChatMessages = ({ chat }: { chat: ChatDetails }) => {
                 pending={isAIPending}
                 loading={isLoading}
                 parts={parts}
+                question={
+                  messages[index - 1]?.find(
+                    (part) =>
+                      part.role === 'human' && part.type === 'message',
+                  )?.data || ''
+                }
                 hanldeMessageFeedback={hanldeMessageFeedback}
               />
             ) : (

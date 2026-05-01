@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import logging
+import re
 from typing import List, Optional, Tuple
 
 import httpx
@@ -46,6 +47,35 @@ from config.celery_tasks import collection_delete_task, collection_init_task
 
 logger = logging.getLogger(__name__)
 
+QUERY_KEYWORD_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9._-]*|[\u4e00-\u9fff]{2,}")
+QUERY_KEYWORD_STOPWORDS = {
+    "what",
+    "which",
+    "when",
+    "where",
+    "tell",
+    "show",
+    "about",
+    "happened",
+    "happen",
+    "please",
+    "query",
+    "question",
+    "发生",
+    "什么",
+    "哪些",
+    "情况",
+    "相关",
+    "问题",
+    "知识库",
+    "脉络",
+    "时间",
+    "地点",
+    "空间",
+    "实体",
+    "看看",
+}
+
 
 class CollectionService:
     """Collection service that handles business logic for collections"""
@@ -56,6 +86,25 @@ class CollectionService:
             self.db_ops = async_db_ops  # Use global instance
         else:
             self.db_ops = AsyncDatabaseOps(session)  # Create custom instance for transaction control
+
+    @staticmethod
+    def extract_query_keywords(query: str, max_keywords: int = 8) -> list[str]:
+        keywords: list[str] = []
+        seen: set[str] = set()
+        for token in QUERY_KEYWORD_PATTERN.findall(query or ""):
+            cleaned = str(token).strip()
+            if not cleaned:
+                continue
+            lowered = cleaned.lower()
+            if lowered in QUERY_KEYWORD_STOPWORDS or cleaned in QUERY_KEYWORD_STOPWORDS:
+                continue
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            keywords.append(cleaned)
+            if len(keywords) >= max_keywords:
+                break
+        return keywords
 
     async def _resolve_default_model(
         self,

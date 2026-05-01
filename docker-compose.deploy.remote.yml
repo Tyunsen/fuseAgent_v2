@@ -35,6 +35,9 @@ services:
       - envs/docker.env.overrides
     environment:
       - DOCRAY_HOST=${DOCRAY_HOST}
+      - CHUNK_SIZE=${CHUNK_SIZE:-400}
+      - CHUNK_OVERLAP_SIZE=${CHUNK_OVERLAP_SIZE:-20}
+      - EMBEDDING_MAX_CHUNKS_IN_BATCH=${EMBEDDING_MAX_CHUNKS_IN_BATCH:-10}
       - OTEL_ENABLED=False
       - JAEGER_ENABLED=False
     ports:
@@ -93,6 +96,53 @@ services:
       - DOCRAY_HOST=${DOCRAY_HOST}
       - APERAG_API_BASE_URL=http://aperag-api:8000
       - CELERY_WORKER_CONCURRENCY=${CELERY_WORKER_CONCURRENCY:-4}
+      - CHUNK_SIZE=${CHUNK_SIZE:-400}
+      - CHUNK_OVERLAP_SIZE=${CHUNK_OVERLAP_SIZE:-20}
+      - EMBEDDING_MAX_CHUNKS_IN_BATCH=${EMBEDDING_MAX_CHUNKS_IN_BATCH:-10}
+      - OTEL_ENABLED=False
+      - JAEGER_ENABLED=False
+      - NVIDIA_VISIBLE_DEVICES=${FUSEAGENT_GPU_DEVICE:-all}
+      - CUDA_VISIBLE_DEVICES=${FUSEAGENT_GPU_DEVICE:-all}
+    command: ["/app/scripts/entrypoint.sh", "/app/scripts/start-celery-worker.sh"]
+    restart: unless-stopped
+
+  celerygraphworker:
+    image: ${REGISTRY:-docker.io}/apecloud/aperag:${VERSION:-v0.0.0-nightly}
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    container_name: aperag-celerygraphworker
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      es:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+    volumes:
+      - ~/.cache:/root/.cache
+      - ./resources:/data/resources
+      - aperag-shared-data:/shared
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+      - envs/docker.env.overrides
+    environment:
+      - NODE_IP=mirofish_graph
+      - CELERY_QUEUES=mirofish_graph
+      - DOCRAY_HOST=${DOCRAY_HOST}
+      - APERAG_API_BASE_URL=http://aperag-api:8000
+      - CELERY_WORKER_CONCURRENCY=${CELERY_GRAPH_WORKER_CONCURRENCY:-4}
+      - CELERY_WORKER_POOL=${CELERY_WORKER_POOL:-threads}
+      - GRAPH_EXTRACTION_CONCURRENCY=${GRAPH_EXTRACTION_CONCURRENCY:-32}
+      - GRAPH_EXTRACTION_MAX_TOKENS=${GRAPH_EXTRACTION_MAX_TOKENS:-1600}
+      - GRAPH_DEFAULT_CHUNK_SIZE=${GRAPH_DEFAULT_CHUNK_SIZE:-3200}
+      - GRAPH_DEFAULT_CHUNK_OVERLAP=${GRAPH_DEFAULT_CHUNK_OVERLAP:-240}
       - OTEL_ENABLED=False
       - JAEGER_ENABLED=False
       - NVIDIA_VISIBLE_DEVICES=${FUSEAGENT_GPU_DEVICE:-all}
@@ -233,9 +283,6 @@ services:
   neo4j:
     image: neo4j:5.26.5-enterprise
     container_name: aperag-neo4j
-    ports:
-      - "7474:7474"  # HTTP
-      - "7687:7687"  # Bolt
     environment:
       - NEO4J_AUTH=neo4j/password
       - NEO4J_PLUGINS=["apoc"]

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import asyncio
+import functools
 import json
 import logging
 import os
@@ -56,6 +57,7 @@ from aperag.chat.history.message import StoredChatMessage, create_assistant_mess
 from aperag.db.ops import AsyncDatabaseOps, async_db_ops
 from aperag.schema import view_models
 from aperag.service.prompt_template_service import build_agent_query_prompt, prompt_template_service
+from aperag.service.trace_answer_service import trace_answer_service
 from aperag.trace import trace_async_function
 
 logger = logging.getLogger(__name__)
@@ -69,7 +71,7 @@ TRAILING_SOURCE_SECTION_PATTERN = re.compile(
 AGENT_RESPONSE_CONSTRAINTS = """
 Final response constraints:
 - Never expose chain-of-thought, internal tool planning, or `<think>` tags.
-- Keep the final answer concise and direct.
+- Keep the final answer concise and direct, but do not over-compress trace-mode answers that need multiple concrete events or relationships.
 - Preserve Mermaid diagrams when graph evidence is available.
 - Do not include a standalone Sources/来源 section in the answer body. The interface renders sources separately.
 """.strip()
@@ -311,9 +313,18 @@ class AgentChatService:
             query = process_result.get("query", "")
             ai_response = process_result.get("content", "")
             references = process_result.get("references", "")
+            trace_mode = process_result.get("trace_mode", "default")
             tool_use_list = consumer_result
             await self._save_conversation_history(
-                chat_id, message_id, trace_id, query, ai_response, files, tool_use_list, references
+                chat_id,
+                message_id,
+                trace_id,
+                query,
+                ai_response,
+                files,
+                tool_use_list,
+                references,
+                trace_mode=trace_mode,
             )
 
         except Exception as e:
@@ -423,6 +434,8 @@ class AgentChatService:
                 "data": chunk,
                 "timestamp": message.get("timestamp", int(time.time())),
             }
+            if message.get("trace_mode"):
+                chunk_message["trace_mode"] = message.get("trace_mode")
 
             await websocket.send_text(json.dumps(chunk_message))
             logger.debug(f"Sent message chunk {i + 1}/{len(chunks)}: {len(chunk)} chars")
@@ -430,6 +443,182 @@ class AgentChatService:
             # Add delay between chunks (except for the last one)
             if i < len(chunks) - 1:
                 await asyncio.sleep(delay)
+
+    @staticmethod
+    def _supports_openai_incremental_stream(llm: Any) -> bool:
+        module_name = getattr(getattr(llm, "__class__", None), "__module__", "") or ""
+        return "augmented_llm_openai" in module_name
+
+    async def _stream_openai_final_answer(
+        self,
+        *,
+        llm: Any,
+        messages: List[Dict[str, Any]],
+        request_params: RequestParams,
+        message_queue: AgentMessageQueue,
+        message_id: str,
+        trace_mode: str,
+    ) -> str:
+        from openai import AsyncOpenAI
+
+        model = await llm.select_model(request_params)
+        user = request_params.user or getattr(llm.context.config.openai, "user", None)
+        arguments = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+        }
+        if user:
+            arguments["user"] = user
+        if request_params.stopSequences is not None:
+            arguments["stop"] = request_params.stopSequences
+
+        if llm._reasoning(model):
+            arguments["max_completion_tokens"] = request_params.maxTokens
+            arguments["reasoning_effort"] = request_params.reasoning_effort or llm._reasoning_effort
+        else:
+            arguments["max_tokens"] = request_params.maxTokens
+
+        if request_params.metadata:
+            arguments.update(request_params.metadata)
+
+        pieces: List[str] = []
+        async with AsyncOpenAI(
+            api_key=llm.context.config.openai.api_key,
+            base_url=llm.context.config.openai.base_url,
+            http_client=llm.context.config.openai.http_client
+            if hasattr(llm.context.config.openai, "http_client")
+            else None,
+            default_headers=llm.context.config.openai.default_headers
+            if hasattr(llm.context.config.openai, "default_headers")
+            else None,
+        ) as client:
+            stream = await client.chat.completions.create(**arguments)
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                content = getattr(delta, "content", None)
+                if not content:
+                    continue
+                pieces.append(content)
+                await message_queue.put(
+                    {
+                        "type": "message",
+                        "id": message_id,
+                        "data": content,
+                        "timestamp": int(time.time()),
+                        "trace_mode": trace_mode,
+                        "__passthrough_stream": True,
+                    }
+                )
+
+        return "".join(pieces)
+
+    async def _generate_streaming_openai_response(
+        self,
+        *,
+        llm: Any,
+        prompt: str,
+        request_params: RequestParams,
+        message_queue: AgentMessageQueue,
+        message_id: str,
+        trace_mode: str,
+    ) -> tuple[str, bool]:
+        from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIConverter
+        from openai import AsyncOpenAI
+
+        params = llm.get_request_params(request_params)
+        messages: List[Dict[str, Any]] = []
+        if params.use_history:
+            messages.extend(llm.history.get())
+
+        system_prompt = llm.instruction or params.systemPrompt
+        if system_prompt and len(messages) == 0:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.extend(OpenAIConverter.convert_mixed_messages_to_openai(prompt))
+
+        response = await llm.agent.list_tools(tool_filter=params.tool_filter)
+        available_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.inputSchema,
+                },
+            }
+            for tool in response.tools
+        ] or None
+        model = await llm.select_model(params)
+        user = params.user or getattr(llm.context.config.openai, "user", None)
+
+        async with AsyncOpenAI(
+            api_key=llm.context.config.openai.api_key,
+            base_url=llm.context.config.openai.base_url,
+            http_client=llm.context.config.openai.http_client
+            if hasattr(llm.context.config.openai, "http_client")
+            else None,
+            default_headers=llm.context.config.openai.default_headers
+            if hasattr(llm.context.config.openai, "default_headers")
+            else None,
+        ) as client:
+            for _ in range(params.max_iterations):
+                arguments = {"model": model, "messages": messages}
+                if available_tools:
+                    arguments["tools"] = available_tools
+                if user:
+                    arguments["user"] = user
+                if params.stopSequences is not None:
+                    arguments["stop"] = params.stopSequences
+                if llm._reasoning(model):
+                    arguments["max_completion_tokens"] = params.maxTokens
+                    arguments["reasoning_effort"] = params.reasoning_effort or llm._reasoning_effort
+                else:
+                    arguments["max_tokens"] = params.maxTokens
+                if params.metadata:
+                    arguments.update(params.metadata)
+
+                response = await client.chat.completions.create(**arguments)
+                if not response.choices:
+                    break
+
+                choice = response.choices[0]
+                message = choice.message
+
+                if choice.finish_reason in ["tool_calls", "function_call"] and message.tool_calls:
+                    sanitized_name = (
+                        re.sub(r"[^a-zA-Z0-9_-]", "_", llm.name)
+                        if isinstance(llm.name, str)
+                        else None
+                    )
+                    converted_message = llm.convert_message_to_message_param(message, name=sanitized_name)
+                    messages.append(converted_message)
+                    tool_tasks = [
+                        functools.partial(llm.execute_tool_call, tool_call=tool_call)
+                        for tool_call in message.tool_calls
+                    ]
+                    tool_results = await llm.executor.execute_many(tool_tasks)
+                    for result in tool_results:
+                        if isinstance(result, BaseException) or result is None:
+                            continue
+                        messages.append(result)
+                    continue
+
+                full_content = await self._stream_openai_final_answer(
+                    llm=llm,
+                    messages=messages,
+                    request_params=params,
+                    message_queue=message_queue,
+                    message_id=message_id,
+                    trace_mode=trace_mode,
+                )
+                if params.use_history:
+                    messages.append({"role": "assistant", "content": full_content})
+                    llm.history.set(messages)
+                return full_content, True
+
+        return "", False
 
     async def _consume_messages_from_queue(
         self, message_queue: AgentMessageQueue, websocket: WebSocket
@@ -458,7 +647,12 @@ class AgentChatService:
                     tool_call_results.append(message)
 
                 # Special handling for type="message" - stream it in chunks
-                if isinstance(message, dict) and message.get("type") == "message":
+                if isinstance(message, dict) and message.get("type") == "message" and message.get("__passthrough_stream"):
+                    direct_message = dict(message)
+                    direct_message.pop("__passthrough_stream", None)
+                    await websocket.send_text(json.dumps(direct_message))
+                    logger.debug("Sent passthrough stream chunk to WebSocket")
+                elif isinstance(message, dict) and message.get("type") == "message":
                     await self._stream_message_content(message, websocket)
                     logger.debug(f"Streamed message content: {message.get('type', 'unknown')}")
                 else:
@@ -569,11 +763,27 @@ class AgentChatService:
             web_search_enabled=agent_message.web_search_enabled,
             language=agent_message.language,
             files=agent_message.files,
+            trace_mode=trace_answer_service.normalize_trace_mode(agent_message.trace_mode),
         )
 
         try:
+            from aperag.service.collection_service import collection_service
+
+            query_keywords = collection_service.extract_query_keywords(merged_agent_message.query)
+            trace_prompt_context = trace_answer_service.build_prompt_context(
+                trace_mode=merged_agent_message.trace_mode,
+                query=merged_agent_message.query,
+                query_keywords=query_keywords,
+                channels=["vector_search", "fulltext_search", "graph_search"],
+            )
+
             # Send start message
-            await message_queue.put(format_stream_start(message_id))
+            await message_queue.put(
+                format_stream_start(
+                    message_id,
+                    trace_mode=trace_prompt_context.trace_mode,
+                )
+            )
 
             # Create memory from chat history
             history = await self.history_manager.get_chat_history(chat_id)
@@ -587,7 +797,11 @@ class AgentChatService:
 
             # Build query prompt using resolved query prompt template
             comprehensive_prompt = build_agent_query_prompt(
-                chat_id, agent_message=merged_agent_message, user=user, template=resolved_query_prompt
+                chat_id,
+                agent_message=merged_agent_message,
+                user=user,
+                template=resolved_query_prompt,
+                prompt_appendix=trace_answer_service.build_prompt_appendix(trace_prompt_context),
             )
             comprehensive_prompt = f"{comprehensive_prompt}\n\n{AGENT_RESPONSE_CONSTRAINTS}"
 
@@ -600,22 +814,49 @@ class AgentChatService:
                 temperature=0.7,
                 user=user,
             )
-            response = await llm.generate_str(comprehensive_prompt, request_params)
-            full_content = self._sanitize_response_content(response or "") or "No response generated"
+            streamed = False
+            full_content = ""
+            if self._supports_openai_incremental_stream(llm):
+                full_content, streamed = await self._generate_streaming_openai_response(
+                    llm=llm,
+                    prompt=comprehensive_prompt,
+                    request_params=request_params,
+                    message_queue=message_queue,
+                    message_id=message_id,
+                    trace_mode=trace_prompt_context.trace_mode,
+                )
 
-            await asyncio.sleep(0.1)  # Allow time for the message to be processed in listener
+            if not streamed:
+                response = await llm.generate_str(comprehensive_prompt, request_params)
+                full_content = response or ""
+                await asyncio.sleep(0.1)  # Allow time for the message to be processed in listener
+                await message_queue.put(
+                    format_stream_content(
+                        message_id,
+                        full_content,
+                        trace_mode=trace_prompt_context.trace_mode,
+                    )
+                )
 
-            await message_queue.put(format_stream_content(message_id, full_content))
+            full_content = self._sanitize_response_content(full_content) or "No response generated"
 
             tool_references = extract_tool_call_references(llm.history)
             urls = []
 
-            await message_queue.put(format_stream_end(message_id, references=tool_references, urls=urls))
+            await message_queue.put(
+                format_stream_end(
+                    message_id,
+                    references=tool_references,
+                    urls=urls,
+                    trace_mode=trace_prompt_context.trace_mode,
+                )
+            )
 
             return {
                 "query": merged_agent_message.query,
                 "content": full_content,
                 "references": tool_references,
+                "trace_mode": trace_prompt_context.trace_mode,
             }
 
         finally:
@@ -727,6 +968,7 @@ class AgentChatService:
             query = process_result.get("query", "")
             ai_response = process_result.get("content", "")
             references = process_result.get("references", "")
+            trace_mode = process_result.get("trace_mode", "default")
             tool_use_list = consumer_result
 
             # AI message
@@ -737,6 +979,7 @@ class AgentChatService:
                 trace_id=trace_id,
                 tool_use_list=tool_use_list,
                 references=references,
+                metadata={"trace_mode": trace_mode},
                 # urls=,
             )
             return ai_message
@@ -759,6 +1002,7 @@ class AgentChatService:
         files: List[Dict[str, Any]],
         tool_use_list: List[Dict],
         tool_references: List[Dict[str, Any]],
+        trace_mode: str = "default",
     ) -> None:
         """
         Save conversation history from successful agent processing.
@@ -781,6 +1025,7 @@ class AgentChatService:
                 files=files,
                 tool_use_list=tool_use_list,
                 tool_references=tool_references,
+                trace_mode=trace_mode,
             )
 
             if not history_saved:

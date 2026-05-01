@@ -156,7 +156,19 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
 - [ ] TXXX Security hardening
 - [ ] TXXX Run quickstart.md validation
+- [ ] TXXX Import the full acceptance dataset (for this repo: `E:\codes\fuseAgent_v2\iw_docs`) into a fresh knowledge base when the feature changes indexing, graph, or QA behavior
+- [ ] TXXX Verify all required indexes finish within the constitution time budget
+- [ ] TXXX Verify the collection graph page renders and satisfies the required node/edge thresholds
+- [ ] TXXX If UI changes, create a new working branch or equivalent isolated workspace from the approved UI baseline instead of modifying the baseline branch directly
+- [ ] TXXX If time trace changes, verify the answer includes a day-level gantt chart when source evidence supports it
+- [ ] TXXX If space trace changes, verify the answer stays shell-compatible with default mode and uses the same `graph TD` flow topology unless the feature explicitly changes the constitution again
+- [ ] TXXX If entity trace changes, verify the subgraph contains only the entities and edges referenced by the current answer
+- [ ] TXXX If QA display or citation behavior changes, verify citations appear inline at the exact referenced sentence positions rather than as a detached number cluster
+- [ ] TXXX If QA display or citation behavior changes, verify clicking `[n]` opens and focuses the right-side source drawer on the matching source entry
+- [ ] TXXX If entity trace changes for graph-ready `@collection` queries, verify the mode does not silently fall back to an empty subgraph when related graph elements exist
+- [ ] TXXX Use freshly generated answers after deployment for final QA verification; do not rely on historical messages as the only proof of correctness
 - [ ] TXXX Start or restart the latest applicable service stack and record the user verification access path
+- [ ] TXXX Start the remote service stack, forward ports to local, and automate the final acceptance flow against the forwarded URLs
 
 ---
 
@@ -251,3 +263,4 @@ With multiple developers:
 - Stop at any checkpoint to validate story independently
 - After major runnable implementation work, leave the latest applicable service running for user verification unless startup is not applicable or fails with a reported blocker
 - Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence
+- Constitution-tagged strict acceptance items are not optional. If they fail, implementation is not complete and the execution loop must continue until they pass or an external blocker is proven.

@@ -108,6 +108,7 @@ class StoredChatMessage(BaseModel):
                 urls=part.urls if part.urls else None,
                 feedback=part.feedback,
                 files=self.files,
+                trace_mode=(part.metadata or {}).get("trace_mode", "default"),
             )
             frontend_messages.append(chatMessage)
         return frontend_messages

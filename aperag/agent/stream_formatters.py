@@ -54,27 +54,40 @@ def format_i18n_error(error_key: str, language: str = "en-US", **kwargs) -> Agen
 
 
 # Backward compatibility functions
-def format_stream_start(msg_id: str) -> AgentStartResponse:
+def format_stream_start(msg_id: str, trace_mode: str | None = None) -> AgentStartResponse:
     """Format stream start event - backward compatibility"""
-    return AgentStartResponse(
+    response = AgentStartResponse(
         type="start",
         id=msg_id,
         timestamp=int(time.time()),
     )
+    if trace_mode:
+        response["trace_mode"] = trace_mode
+    return response
 
 
-def format_stream_content(msg_id: str, content: str) -> AgentMessageResponse:
+def format_stream_content(
+    msg_id: str,
+    content: str,
+    trace_mode: str | None = None,
+) -> AgentMessageResponse:
     """Format stream content event - backward compatibility"""
-    return AgentMessageResponse(
+    response = AgentMessageResponse(
         type="message",
         id=msg_id,
         data=content,
         timestamp=int(time.time()),
     )
+    if trace_mode:
+        response["trace_mode"] = trace_mode
+    return response
 
 
 def format_stream_end(
-    msg_id: str, references: List[Dict[str, Any]] = None, urls: List[str] = None
+    msg_id: str,
+    references: List[Dict[str, Any]] = None,
+    urls: List[str] = None,
+    trace_mode: str | None = None,
 ) -> AgentStopResponse:
     """Format stream end event - backward compatibility"""
     if references is None:
@@ -82,13 +95,16 @@ def format_stream_end(
     if urls is None:
         urls = []
 
-    return AgentStopResponse(
+    response = AgentStopResponse(
         type="stop",
         id=msg_id,
         data=references,
         urls=urls,
         timestamp=int(time.time()),
     )
+    if trace_mode:
+        response["trace_mode"] = trace_mode
+    return response
 
 
 def format_thinking(msg_id: str, content: str) -> AgentThinkingResponse:

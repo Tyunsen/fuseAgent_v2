@@ -363,8 +363,10 @@ async def test_get_knowledge_graph_maps_mirofish_nodes_and_edges():
     assert graph['nodes'][0]['id'] == 'node-1'
     assert graph['nodes'][0]['properties']['entity_name'] == 'Alice'
     assert graph['nodes'][1]['properties']['entity_type'] == 'Organization'
+    assert isinstance(graph['nodes'][0]['properties']['created_at'], int)
     assert graph['edges'][0]['properties']['description'] == 'Alice works for Acme.'
     assert graph['edges'][0]['properties']['since'] == '2024'
+    assert isinstance(graph['edges'][0]['properties']['created_at'], int)
 
 
 def test_collect_document_texts_prefers_cached_markdown(monkeypatch: pytest.MonkeyPatch):

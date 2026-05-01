@@ -114,6 +114,23 @@
 - **SC-003**: [User satisfaction metric, e.g., "90% of users successfully complete primary task on first attempt"]
 - **SC-004**: [Business metric, e.g., "Reduce support tickets related to [X] by 50%"]
 
+<!--
+  When the feature changes knowledge-base indexing, graph rendering, or QA modes,
+  success criteria MUST also define:
+  - the acceptance dataset or source of truth,
+  - any end-to-end timing budget,
+  - graph rendering/quantity thresholds,
+  - and mode-specific output expectations.
+  - If the feature changes QA display, citations, or trace graphs, success criteria
+    MUST also define:
+    - whether citations appear inline at the exact referenced sentence position,
+    - whether clicking `[n]` opens and focuses the right-side source drawer,
+    - whether time mode uses one readable gantt main graph,
+    - whether entity mode must avoid empty-subgraph fallback for graph-ready
+      `@collection` questions,
+    - and which fresh-message runtime examples prove the feature actually works.
+-->
+
 ## Assumptions
 
 <!--

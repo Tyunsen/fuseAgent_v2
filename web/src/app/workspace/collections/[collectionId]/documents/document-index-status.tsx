@@ -20,12 +20,14 @@ const getIndexStatusBg = (status?: DocumentVectorIndexStatusEnum) => {
 export const DocumentIndexStatus = ({
   document,
   accessorKey,
+  statusOverride,
 }: {
   document: Document;
   accessorKey: string;
+  statusOverride?: DocumentVectorIndexStatusEnum;
 }) => {
   const locale = useLocale();
-  const status = _.get(document, accessorKey);
+  const status = statusOverride ?? _.get(document, accessorKey);
   const color = getIndexStatusBg(status);
   return (
     <div className="flex flex-row items-center gap-2">

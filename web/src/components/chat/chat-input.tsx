@@ -60,6 +60,7 @@ export type ChatInputSubmitParams = {
     id: string;
     name: string;
   }[];
+  trace_mode: 'default' | 'time' | 'space' | 'entity';
 };
 
 export type Attachment = {
@@ -116,6 +117,11 @@ export const ChatInput = ({
     },
   );
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [traceMode, setTraceMode] = useLocalStorageState<
+    'default' | 'time' | 'space' | 'entity'
+  >('chat-trace-mode', {
+    defaultValue: 'default',
+  });
 
   const handleDeleteAttachment = useCallback(async (attachment: Attachment) => {
     setAttachments((items) =>
@@ -279,6 +285,7 @@ export const ChatInput = ({
           id: attachment.document_id || '',
           name: attachment.file.name,
         })),
+      trace_mode: traceMode || 'default',
     };
 
     setQuery('');
@@ -296,6 +303,7 @@ export const ChatInput = ({
     providerModels,
     query,
     selectedCollections,
+    traceMode,
     webSearchEnabled,
   ]);
 
@@ -478,8 +486,39 @@ export const ChatInput = ({
               </MentionContent>
             </Mention>
 
-            <div className="absolute bottom-0 flex w-full flex-row items-center justify-between p-4">
-              <div></div>
+            <div className="absolute bottom-0 flex w-full flex-row items-center justify-between gap-3 p-4">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="text-muted-foreground hidden text-xs font-medium sm:inline">
+                  {page_chat('trace_mode_label')}
+                </span>
+                <Select
+                  value={traceMode || 'default'}
+                  disabled={disabled}
+                  onValueChange={(value) => {
+                    setTraceMode(
+                      value as 'default' | 'time' | 'space' | 'entity',
+                    );
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-32 cursor-pointer rounded-full border-dashed text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">
+                      {page_chat('trace_modes.default')}
+                    </SelectItem>
+                    <SelectItem value="time">
+                      {page_chat('trace_modes.time')}
+                    </SelectItem>
+                    <SelectItem value="space">
+                      {page_chat('trace_modes.space')}
+                    </SelectItem>
+                    <SelectItem value="entity">
+                      {page_chat('trace_modes.entity')}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="flex gap-2">
                 <FileUpload
                   maxFiles={10}

@@ -481,3 +481,25 @@ async def get_answer_graph_view(
         raise HTTPException(status_code=404, detail="Collection not found")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/collections/{collection_id}/trace-support", tags=["graph"])
+async def get_trace_support_view(
+    request: Request,
+    collection_id: str,
+    trace_support_request: view_models.TraceSupportRequest,
+    user: User = Depends(required_user),
+) -> view_models.TraceSupportResponse:
+    """Get post-answer conclusion bindings and mode-specific trace graph payload."""
+    from aperag.service.trace_support_service import trace_support_service
+
+    try:
+        return await trace_support_service.build_trace_support(
+            user_id=str(user.id),
+            collection_id=collection_id,
+            request=trace_support_request,
+        )
+    except CollectionNotFoundException:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

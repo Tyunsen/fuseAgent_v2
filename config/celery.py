@@ -62,11 +62,17 @@ app.conf.beat_schedule = {
     },
 }
 
+task_routes = {
+    "config.celery_tasks.mirofish_collection_graph_task": {"queue": "mirofish_graph"},
+}
+
 # Set up task routes if local queue is specified
 if settings.local_queue_name:
-    app.conf.task_routes = {
-        "aperag.tasks.index.add_index_for_local_document": {"queue": f"{settings.local_queue_name}"},
+    task_routes["aperag.tasks.index.add_index_for_local_document"] = {
+        "queue": f"{settings.local_queue_name}"
     }
+
+app.conf.task_routes = task_routes
 
 
 # Simple logging configuration for Celery workers

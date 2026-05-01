@@ -68,7 +68,6 @@ export const CollectionIndexOverview = ({
   const documentCount = documents.length;
   const vectorCounts = getStatusCounts(documents, 'vector_index_status');
   const fulltextCounts = getStatusCounts(documents, 'fulltext_index_status');
-  const graphCounts = getStatusCounts(documents, 'graph_index_status');
   const mirofishCollection = isMirofishCollection(collection.config);
   const showExpectationCopy = mirofishCollection && documentCount > 0;
   const overviewTitle =
@@ -145,12 +144,12 @@ export const CollectionIndexOverview = ({
                 {graphStatusCopy.description}
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {documentCount === 0 ? (
-                <Badge variant="secondary">{waitingForDocuments}</Badge>
-              ) : (
-                renderStatusBadges({ counts: graphCounts, locale })
-              )}
+            <div className="text-muted-foreground text-xs">
+              {documentCount === 0
+                ? waitingForDocuments
+                : locale === 'zh-CN'
+                  ? '文档列表会同步显示图索引状态；这里展示的是当前知识库整体的 MiroFish 图状态。'
+                  : 'The document list also mirrors graph index status; this card shows the overall MiroFish graph state for the collection.'}
             </div>
           </div>
         ) : null}

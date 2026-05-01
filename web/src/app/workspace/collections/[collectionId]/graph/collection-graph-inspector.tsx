@@ -41,8 +41,12 @@ export const CollectionGraphInspector = ({
       .map((node) => node.properties?.entity_type)
       .filter(Boolean),
   ).size;
+  const collectionConfigWithOntology =
+    collectionConfig as (CollectionConfig & {
+      graph_ontology_summary?: string;
+    }) | null;
   const ontologySummary = String(
-    collectionConfig?.graph_ontology_summary || '',
+    collectionConfigWithOntology?.graph_ontology_summary || '',
   ).trim();
 
   return (

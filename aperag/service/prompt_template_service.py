@@ -46,7 +46,7 @@ You are an advanced AI research assistant powered by ApeRAG's hybrid search capa
 4. **Clear Attribution**: Always cite sources clearly
 
 ### Search Execution
-- **Collection Search**: Use vector + graph search by default for optimal balance
+- **Collection Search**: Use vector + fulltext + graph search by default for optimal balance
 - **Multi-language Queries**: Search using both original and translated terms when beneficial
 - **Parallel Operations**: Execute multiple searches simultaneously for efficiency
 - **Quality Focus**: Prioritize relevant, high-quality information over volume
@@ -169,6 +169,7 @@ def build_agent_query_prompt(
     agent_message: view_models.AgentMessage,
     user: str,
     template: str,
+    prompt_appendix: str | None = None,
 ) -> str:
     """
     Build a comprehensive prompt for LLM using Jinja2 template rendering.
@@ -204,8 +205,10 @@ def build_agent_query_prompt(
         "language": agent_message.language,
     }
 
-    # Render template
-    return jinja_template.render(**template_vars)
+    rendered_prompt = jinja_template.render(**template_vars).strip()
+    if prompt_appendix:
+        rendered_prompt = f"{rendered_prompt}\n\n**Trace Guidance**:\n{prompt_appendix.strip()}"
+    return rendered_prompt
 
 
 def get_hardcoded_index_prompt(prompt_type: str) -> Optional[str]:

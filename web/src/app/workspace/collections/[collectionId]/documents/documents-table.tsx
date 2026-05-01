@@ -44,7 +44,9 @@ import {
 
 import {
   getDocumentStatusColor,
+  getMirofishDocumentGraphStatus,
   isCollectionIndexStatusVisible,
+  isMirofishCollection,
 } from '@/app/workspace/collections/tools';
 import { useCollectionContext } from '@/components/providers/collection-provider';
 import { useTranslations } from 'next-intl';
@@ -91,6 +93,28 @@ export function DocumentsTable({
     setSearchValue(query.search || '');
   }, [query]);
 
+  const shouldAutoRefreshGraphStatus = React.useMemo(() => {
+    if (!isMirofishCollection(collection.config)) {
+      return false;
+    }
+    const graphStatus = collection.config?.graph_status;
+    return graphStatus === 'building' || graphStatus === 'updating';
+  }, [collection.config]);
+
+  React.useEffect(() => {
+    if (!shouldAutoRefreshGraphStatus) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      router.refresh();
+    }, 15_000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [router, shouldAutoRefreshGraphStatus]);
+
   const handleSearch = React.useCallback(
     (params: { page?: number; pageSize?: number; search?: string }) => {
       const urlSearchParams = new URLSearchParams();
@@ -120,7 +144,8 @@ export function DocumentsTable({
           | 'VECTOR'
           | 'VISION',
       );
-      if (enabled) {
+      const shouldRenderColumn = enabled;
+      if (shouldRenderColumn) {
         indexCols.push({
           accessorKey,
           header: page_collections(`index_type_${key}.title`),
@@ -128,6 +153,11 @@ export function DocumentsTable({
             <DocumentIndexStatus
               document={row.original}
               accessorKey={accessorKey}
+              statusOverride={
+                key === 'GRAPH' && isMirofishCollection(collection.config)
+                  ? getMirofishDocumentGraphStatus(collection.config)
+                  : undefined
+              }
             />
           ),
         });

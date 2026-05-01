@@ -10,10 +10,18 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  {
+    ignores: [
+      'src/api/**/*',
+      'build/**/*',
+      '.next/**/*',
+      'node_modules/**/*',
+      'coverage/**/*',
+    ],
+  },
   ...compat.extends('next/core-web-vitals', 'next/typescript'),
   ...compat.config({
     extends: ['next', 'prettier'],
-    ignorePatterns: 'src/api/*',
     rules: {
       '@typescript-eslint/no-explicit-any': 'warn',
       '@next/next/no-img-element': 'off',

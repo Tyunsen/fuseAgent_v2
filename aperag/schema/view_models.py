@@ -644,6 +644,10 @@ class ChatMessage(BaseModel):
     urls: Optional[list[str]] = None
     feedback: Optional[Feedback] = None
     files: Optional[list[File]] = None
+    trace_mode: Optional[Literal['default', 'time', 'space', 'entity']] = Field(
+        'default',
+        description='Trace mode used for this chat turn',
+    )
 
 
 class ChatDetails(BaseModel):
@@ -1339,6 +1343,23 @@ class AnswerGraphReferenceInput(BaseModel):
     )
 
 
+class TraceGraphGroup(BaseModel):
+    id: str = Field(..., description='Stable group identifier')
+    label: str = Field(..., description='Display label for the grouped graph bucket')
+    kind: Optional[Literal['default', 'time', 'space', 'entity', 'fallback']] = Field(
+        None,
+        description='Grouping semantics for the graph presentation',
+    )
+    node_ids: list[str] = Field(
+        default_factory=list,
+        description='Graph node identifiers represented in the group',
+    )
+    row_ids: list[str] = Field(
+        default_factory=list,
+        description='Source row identifiers represented in the group',
+    )
+
+
 class AnswerGraphRequest(BaseModel):
     references: list[AnswerGraphReferenceInput] = Field(
         default_factory=list,
@@ -1370,6 +1391,144 @@ class AnswerGraphResponse(BaseModel):
     empty_reason: Optional[str] = Field(
         None,
         description='Explicit reason code for an empty answer graph',
+    )
+    trace_mode: Optional[Literal['default', 'time', 'space', 'entity']] = Field(
+        'default',
+        description='Trace mode associated with the graph payload',
+    )
+    layout: Optional[Literal['force', 'timeline', 'location', 'focus']] = Field(
+        'force',
+        description='Frontend layout hint for rendering this graph payload',
+    )
+    focus_label: Optional[str] = Field(
+        None,
+        description='Optional focus label for trace-mode graph rendering',
+    )
+    groups: list[TraceGraphGroup] = Field(
+        default_factory=list,
+        description='Mode-specific graph groupings used by timeline/location/focus renderers',
+    )
+
+
+class TraceSupportReferenceInput(BaseModel):
+    source_row_id: str = Field(..., description='Stable source row identifier')
+    text: Optional[str] = Field(
+        None,
+        description='Visible source text or supporting passage',
+    )
+    snippet: Optional[str] = Field(
+        None,
+        description='Short preview snippet for UI display',
+    )
+    document_id: Optional[str] = Field(
+        None,
+        description='Optional source document identifier',
+    )
+    document_name: Optional[str] = Field(
+        None,
+        description='Optional source document display name',
+    )
+    preview_title: Optional[str] = Field(
+        None,
+        description='Short preview title for the supporting source row',
+    )
+    page_idx: Optional[int] = Field(
+        None,
+        description='Optional zero-based page index for the supporting source',
+    )
+    section_label: Optional[str] = Field(
+        None,
+        description='Optional section or heading label for the supporting source',
+    )
+    chunk_ids: list[str] = Field(
+        default_factory=list,
+        description='Graph/source chunk identifiers linked to this answer row',
+    )
+    paragraph_precise: bool = Field(
+        False,
+        description='Whether the source locator is precise to a paragraph-level fragment',
+    )
+    md_source_map: Optional[list[int]] = Field(
+        None,
+        description='Optional markdown line range for the source fragment',
+    )
+    pdf_source_map: Optional[list[dict[str, Any]]] = Field(
+        None,
+        description='Optional PDF source map metadata for the source fragment',
+    )
+
+
+class TraceConclusion(BaseModel):
+    id: str = Field(..., description='Stable conclusion identifier')
+    title: str = Field(..., description='Short title for the answer conclusion')
+    statement: str = Field(..., description='Visible answer conclusion text')
+    source_row_ids: list[str] = Field(
+        default_factory=list,
+        description='Source rows that support this conclusion',
+    )
+    locator_quality: Literal['precise', 'approximate'] = Field(
+        'approximate',
+        description='Best locator precision available for the bound source rows',
+    )
+    time_label: Optional[str] = Field(
+        None,
+        description='Optional time label surfaced for time-trace organization',
+    )
+    place_label: Optional[str] = Field(
+        None,
+        description='Optional place label surfaced for space-trace organization',
+    )
+    focus_entity: Optional[str] = Field(
+        None,
+        description='Optional focal entity surfaced for entity-trace organization',
+    )
+
+
+class TraceSupportRequest(BaseModel):
+    trace_mode: Optional[Literal['default', 'time', 'space', 'entity']] = Field(
+        'default',
+        description='Trace mode used to organize the answer support payload',
+    )
+    question: str = Field(..., description='Original user question')
+    answer: str = Field(..., description='Rendered answer content')
+    references: list[TraceSupportReferenceInput] = Field(
+        default_factory=list,
+        description='Prepared reference rows from the current answer',
+    )
+    max_conclusions: Optional[conint(ge=1, le=8)] = Field(
+        4,
+        description='Maximum number of answer conclusions to surface',
+    )
+    max_nodes: Optional[conint(ge=1, le=100)] = Field(
+        18,
+        description='Maximum number of graph nodes to return for trace rendering',
+    )
+
+
+class TraceSupportResponse(BaseModel):
+    trace_mode: Optional[Literal['default', 'time', 'space', 'entity']] = Field(
+        'default',
+        description='Trace mode represented by this support payload',
+    )
+    normalized_focus: Optional[str] = Field(
+        None,
+        description='Normalized time/place/entity focus inferred from the question',
+    )
+    conclusions: list[TraceConclusion] = Field(
+        default_factory=list,
+        description='Visible answer conclusions with source bindings',
+    )
+    graph: AnswerGraphResponse = Field(
+        default_factory=AnswerGraphResponse,
+        description='Mode-specific answer graph payload',
+    )
+    evidence_summary: Optional[str] = Field(
+        None,
+        description='Short evidence summary for the support block',
+    )
+    fallback_used: bool = Field(
+        False,
+        description='Whether weaker organization was used due to limited structured evidence',
     )
 
 
@@ -2861,6 +3020,11 @@ class AgentMessage(BaseModel):
         'en-US', description='Language preference for the response', examples=['en-US']
     )
     files: Optional[list[File]] = None
+    trace_mode: Optional[Literal['default', 'time', 'space', 'entity']] = Field(
+        'default',
+        description='Trace mode used to organize the answer',
+        examples=['default'],
+    )
 
 
 class ExportTaskResponse(BaseModel):

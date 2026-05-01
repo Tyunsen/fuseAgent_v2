@@ -62,6 +62,12 @@ export interface AgentMessage {
      * @memberof AgentMessage
      */
     'files'?: Array<any>;
+    /**
+     * Trace mode used to organize the answer
+     * @type {string}
+     * @memberof AgentMessage
+     */
+    'trace_mode'?: AgentMessageTraceModeEnum;
 }
 
 export const AgentMessageLanguageEnum = {
@@ -79,5 +85,13 @@ export const AgentMessageLanguageEnum = {
 } as const;
 
 export type AgentMessageLanguageEnum = typeof AgentMessageLanguageEnum[keyof typeof AgentMessageLanguageEnum];
+export const AgentMessageTraceModeEnum = {
+    default: 'default',
+    time: 'time',
+    space: 'space',
+    entity: 'entity'
+} as const;
+
+export type AgentMessageTraceModeEnum = typeof AgentMessageTraceModeEnum[keyof typeof AgentMessageTraceModeEnum];
 
 

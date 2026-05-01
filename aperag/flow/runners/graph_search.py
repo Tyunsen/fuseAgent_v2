@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # User input model for graph search node
 class GraphSearchInput(BaseModel):
-    top_k: int = Field(5, description="Number of top results to return")
+    top_k: int = Field(12, description="Number of top results to return")
     collection_ids: Optional[list[str]] = Field(default_factory=list, description="Collection IDs")
 
 

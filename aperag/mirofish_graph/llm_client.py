@@ -68,7 +68,93 @@ class MiroFishLLMClient:
         )
         cleaned = re.sub(r"^```(?:json)?\s*\n?", "", response, flags=re.IGNORECASE)
         cleaned = re.sub(r"\n?```\s*$", "", cleaned).strip()
+        decoder = json.JSONDecoder()
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError as exc:
+            try:
+                parsed, _ = decoder.raw_decode(cleaned)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+
+            repaired = self._repair_graph_json(cleaned)
+            if repaired is not None:
+                return repaired
             raise ValueError(f"Invalid JSON returned by MiroFish graph model: {cleaned}") from exc
+
+    @staticmethod
+    def _repair_graph_json(cleaned: str) -> dict[str, Any] | None:
+        if '"entities"' not in cleaned and '"relations"' not in cleaned:
+            return None
+
+        entities = [
+            item
+            for item in MiroFishLLMClient._extract_completed_array_objects(cleaned, "entities")
+            if item.get("name") and item.get("type")
+        ]
+        relations = [
+            item
+            for item in MiroFishLLMClient._extract_completed_array_objects(cleaned, "relations")
+            if item.get("source_name") and item.get("target_name") and item.get("type")
+        ]
+
+        if not entities and not relations:
+            return None
+
+        return {
+            "entities": entities,
+            "relations": relations,
+        }
+
+    @staticmethod
+    def _extract_completed_array_objects(cleaned: str, field_name: str) -> list[dict[str, Any]]:
+        match = re.search(rf'"{re.escape(field_name)}"\s*:\s*\[', cleaned)
+        if not match:
+            return []
+
+        objects: list[dict[str, Any]] = []
+        index = match.end()
+        depth = 0
+        start: int | None = None
+        in_string = False
+        escaped = False
+
+        while index < len(cleaned):
+            char = cleaned[index]
+
+            if in_string:
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == '"':
+                    in_string = False
+                index += 1
+                continue
+
+            if char == '"':
+                in_string = True
+            elif char == "{":
+                if depth == 0:
+                    start = index
+                depth += 1
+            elif char == "}":
+                if depth > 0:
+                    depth -= 1
+                    if depth == 0 and start is not None:
+                        candidate = cleaned[start : index + 1]
+                        try:
+                            parsed = json.loads(candidate)
+                        except json.JSONDecodeError:
+                            parsed = None
+                        if isinstance(parsed, dict):
+                            objects.append(parsed)
+                        start = None
+            elif char == "]" and depth == 0:
+                break
+
+            index += 1
+
+        return objects

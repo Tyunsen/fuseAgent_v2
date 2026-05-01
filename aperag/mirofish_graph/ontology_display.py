@@ -22,12 +22,17 @@ def normalize_ontology(ontology: dict[str, Any] | None) -> dict[str, Any] | None
 
 def _normalize_items(items: list[Any], *, extra_fields: tuple[str, ...]) -> list[dict[str, Any]]:
     normalized_items: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
     for item in items:
         if not isinstance(item, dict):
             continue
         name = str(item.get("name", "") or "").strip()
         if not name:
             continue
+        normalized_name = name.casefold()
+        if normalized_name in seen_names:
+            continue
+        seen_names.add(normalized_name)
 
         normalized_item = dict(item)
         normalized_item["name"] = name
