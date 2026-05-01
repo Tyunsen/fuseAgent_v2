@@ -45,3 +45,44 @@ def build_graph_status_message(status: str, *, has_active_graph: bool = False) -
             return "Graph update failed. Existing graph remains available."
         return "Initial graph build failed."
     return ""
+
+
+def sanitize_graph_attributes(attributes: Any) -> dict[str, Any]:
+    if not isinstance(attributes, dict):
+        return {}
+
+    sanitized: dict[str, Any] = {}
+    for raw_key, raw_value in attributes.items():
+        key = str(raw_key or "").strip()
+        if not key or raw_value is None:
+            continue
+
+        if key == "place_aliases":
+            values = raw_value if isinstance(raw_value, (list, tuple, set)) else [raw_value]
+            aliases = []
+            seen: set[str] = set()
+            for value in values:
+                alias = str(value or "").strip()
+                if not alias:
+                    continue
+                normalized = alias.casefold()
+                if normalized in seen:
+                    continue
+                seen.add(normalized)
+                aliases.append(alias)
+            if aliases:
+                sanitized[key] = aliases
+            continue
+
+        if isinstance(raw_value, (str, int, float, bool)):
+            value = str(raw_value).strip()
+            if value:
+                sanitized[key] = value
+            continue
+
+        if isinstance(raw_value, (list, tuple, set)):
+            values = [str(item).strip() for item in raw_value if str(item).strip()]
+            if values:
+                sanitized[key] = values
+
+    return sanitized

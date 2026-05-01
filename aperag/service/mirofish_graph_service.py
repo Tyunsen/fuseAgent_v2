@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import math
 from dataclasses import dataclass
+from datetime import datetime
 from io import BytesIO
 
 from sqlalchemy import select
@@ -109,13 +112,17 @@ class MiroFishGraphService:
             name=collection.title or collection.id,
         )
         combined_text = "\n\n".join(document_sections)
+        chunk_size, chunk_overlap = self._resolve_build_chunk_profile(
+            document_count=len(documents),
+            combined_text_length=len(combined_text),
+        )
         graph_data = backend.build_graph(
             project=project,
             text=combined_text,
             ontology=ontology,
             graph_name=f"{collection.title or collection.id} r{target_revision}",
-            chunk_size=settings.mirofish_graph_chunk_size,
-            chunk_overlap=settings.mirofish_graph_chunk_overlap,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
             task_id=f"{collection.id}:{target_revision}",
         )
         active_graph_id = graph_key(project.project_id)
@@ -130,6 +137,9 @@ class MiroFishGraphService:
             "revision": target_revision,
             "node_count": graph_data.get("node_count", 0),
             "edge_count": graph_data.get("edge_count", 0),
+            "chunk_count": graph_data.get("chunk_count", 0),
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
         }
 
     def handle_build_failure(self, collection_id: str, target_revision: int, error: str) -> None:
@@ -222,6 +232,12 @@ class MiroFishGraphService:
         sections: list[str] = []
         document_texts: list[str] = []
         for document in documents:
+            original_text = self._read_original_text_document(document)
+            if original_text:
+                sections.append(f"=== {document.name} ===\n{original_text}")
+                document_texts.append(original_text)
+                continue
+
             cached_content = self._read_cached_document_markdown(document)
             if cached_content:
                 sections.append(f"=== {document.name} ===\n{cached_content}")
@@ -246,6 +262,44 @@ class MiroFishGraphService:
                 if local_doc is not None:
                     cleanup_local_document(local_doc, collection)
         return sections, document_texts
+
+    def _read_original_text_document(self, document: db_models.Document) -> str | None:
+        metadata = {}
+        try:
+            metadata = json.loads(document.doc_metadata or "{}")
+        except json.JSONDecodeError:
+            metadata = {}
+
+        object_path = str(metadata.get("object_path") or "").strip()
+        suffix = object_path.lower().rsplit(".", 1)[-1] if "." in object_path else ""
+        if suffix not in {"md", "txt"}:
+            return None
+
+        obj_store = get_object_store()
+        stream = None
+        try:
+            stream = obj_store.get(object_path)
+            if stream is None:
+                return None
+            raw_content = stream.read()
+            if isinstance(raw_content, str):
+                content = raw_content
+            elif isinstance(raw_content, bytes):
+                content = raw_content.decode("utf-8", errors="replace")
+            else:
+                content = BytesIO(raw_content).read().decode("utf-8", errors="replace")
+            content = content.strip()
+            if content:
+                logger.info("Using original text object for MiroFish graph build: %s", document.id)
+                return content
+        except Exception as exc:
+            logger.warning("Failed to read original text object for document %s: %s", document.id, exc)
+        finally:
+            if stream is not None:
+                close = getattr(stream, "close", None)
+                if callable(close):
+                    close()
+        return None
 
     def _read_cached_document_markdown(self, document: db_models.Document) -> str | None:
         markdown_path = f"{document.object_store_base_path()}/parsed.md"
@@ -306,6 +360,31 @@ class MiroFishGraphService:
             base_url=base_url,
             model=completion.model,
         )
+
+    def _resolve_build_chunk_profile(
+        self,
+        *,
+        document_count: int,
+        combined_text_length: int,
+    ) -> tuple[int, int]:
+        base_chunk_size = settings.mirofish_graph_chunk_size
+        base_overlap = settings.mirofish_graph_chunk_overlap
+
+        if combined_text_length <= base_chunk_size * max(document_count, 1):
+            return base_chunk_size, base_overlap
+
+        target_chunks = max(120, min(180, document_count * 8))
+        adaptive_chunk_size = max(base_chunk_size, math.ceil(combined_text_length / target_chunks))
+        adaptive_chunk_size = min(adaptive_chunk_size, 16000)
+        adaptive_overlap = min(base_overlap, max(120, adaptive_chunk_size // 24))
+        logger.info(
+            "Adaptive MiroFish chunk profile resolved: documents=%s text_length=%s chunk_size=%s overlap=%s",
+            document_count,
+            combined_text_length,
+            adaptive_chunk_size,
+            adaptive_overlap,
+        )
+        return adaptive_chunk_size, adaptive_overlap
 
     def _finalize_success(self, collection_id: str, target_revision: int, active_graph_id: str) -> bool:
         for session in get_sync_session():
@@ -373,8 +452,10 @@ class MiroFishGraphService:
             "description": node.get("summary", ""),
             "aliases": node.get("aliases", []),
             "chunk_ids": chunk_ids,
-            "created_at": node.get("created_at"),
         }
+        created_at = self._normalize_created_at(node.get("created_at"))
+        if created_at is not None:
+            properties["created_at"] = created_at
         for key, value in (node.get("attributes") or {}).items():
             properties[key] = value
         return {
@@ -385,21 +466,44 @@ class MiroFishGraphService:
 
     def _map_graph_edge(self, edge: dict) -> dict:
         chunk_ids = [edge["source_chunk_id"]] if edge.get("source_chunk_id") else []
+        properties = {
+            "description": edge.get("fact", ""),
+            "evidence": edge.get("evidence", ""),
+            "confidence": edge.get("confidence", 0.5),
+            "chunk_ids": chunk_ids,
+            "source_chunk_id": edge.get("source_chunk_id"),
+            **(edge.get("attributes") or {}),
+        }
+        created_at = self._normalize_created_at(edge.get("created_at"))
+        if created_at is not None:
+            properties["created_at"] = created_at
         return {
             "id": edge["uuid"],
             "type": edge.get("fact_type") or edge.get("name") or "DIRECTED",
             "source": edge["source_node_uuid"],
             "target": edge["target_node_uuid"],
-            "properties": {
-                "description": edge.get("fact", ""),
-                "evidence": edge.get("evidence", ""),
-                "confidence": edge.get("confidence", 0.5),
-                "chunk_ids": chunk_ids,
-                "source_chunk_id": edge.get("source_chunk_id"),
-                "created_at": edge.get("created_at"),
-                **(edge.get("attributes") or {}),
-            },
+            "properties": properties,
         }
+
+    @staticmethod
+    def _normalize_created_at(value) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float):
+            return int(value)
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            pass
+        try:
+            return int(datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp())
+        except ValueError:
+            return None
 
 
 mirofish_graph_service = MiroFishGraphService()

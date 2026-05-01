@@ -11,13 +11,18 @@ import {
 } from '@/components/ui/drawer';
 import { useTranslations } from 'next-intl';
 import { useEffect, useMemo, useState } from 'react';
-import { prepareReferenceRows } from './message-answer-support.types';
+import {
+  TraceConclusion,
+  prepareReferenceRows,
+} from './message-answer-support.types';
 import { MessageReferenceCard } from './message-reference-card';
 
 export const MessageReference = ({
   references,
+  conclusionMap = {},
 }: {
   references: Reference[];
+  conclusionMap?: Record<string, TraceConclusion[]>;
 }) => {
   const t = useTranslations('page_chat.answer_support');
   const rows = useMemo(() => prepareReferenceRows(references), [references]);
@@ -57,6 +62,7 @@ export const MessageReference = ({
                   : [...current, rowId],
               )
             }
+            conclusionMap={conclusionMap}
           />
         </div>
       </DrawerContent>

@@ -31,41 +31,44 @@ function shortUrl(url: string): string {
 }
 
 function ResultSummary({ results }: { results: UrlImportResult[] }) {
+  const t = useTranslations('page_documents');
   const succeeded = results.filter((r) => r.fetch_status === 'success');
   const failed = results.filter((r) => r.fetch_status === 'error');
 
   return (
     <div className="space-y-2 text-sm">
-      {/* Counts */}
       <div className="flex flex-wrap gap-3">
         {succeeded.length > 0 && (
           <span className="flex items-center gap-1 text-emerald-600">
             <CheckCircle2 className="size-3.5 shrink-0" />
-            {succeeded.length} 个成功
+            {t('import_url_result_success', {
+              count: String(succeeded.length),
+            })}
           </span>
         )}
         {failed.length > 0 && (
           <span className="flex items-center gap-1 text-red-500">
             <AlertCircle className="size-3.5 shrink-0" />
-            {failed.length} 个失败
+            {t('import_url_result_failed', {
+              count: String(failed.length),
+            })}
           </span>
         )}
       </div>
 
-      {/* Error details */}
       {failed.length > 0 && (
         <div className="max-h-36 space-y-1.5 overflow-y-auto rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/30">
-          {failed.map((r, i) => (
-            <div key={i} className="text-xs">
+          {failed.map((result, index) => (
+            <div key={index} className="text-xs">
               <span
                 className="font-medium text-red-600 dark:text-red-400"
-                title={r.url}
+                title={result.url}
               >
-                {shortUrl(r.url)}
+                {shortUrl(result.url)}
               </span>
-              {r.error && (
+              {result.error && (
                 <p className="text-muted-foreground mt-0.5 leading-relaxed">
-                  {r.error}
+                  {result.error}
                 </p>
               )}
             </div>
@@ -130,7 +133,7 @@ export const UrlImport = ({ onSuccess }: Props) => {
       setResults(fetchResults);
 
       const succeeded = fetchResults.filter(
-        (r) => r.fetch_status === 'success',
+        (result) => result.fetch_status === 'success',
       );
       if (succeeded.length > 0) {
         onSuccess(fetchResults);
@@ -171,9 +174,9 @@ export const UrlImport = ({ onSuccess }: Props) => {
       )}
 
       <ul className="text-muted-foreground space-y-1 text-xs">
-        <li>• {t('import_url_tips_1')}</li>
-        <li>• {t('import_url_tips_2')}</li>
-        <li>• {t('import_url_tips_3')}</li>
+        <li>- {t('import_url_tips_1')}</li>
+        <li>- {t('import_url_tips_2')}</li>
+        <li>- {t('import_url_tips_3')}</li>
       </ul>
 
       {results && <ResultSummary results={results} />}

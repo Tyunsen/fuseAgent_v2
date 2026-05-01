@@ -69,6 +69,7 @@ class AgentHistoryManager:
         files: List[Dict[str, Any]],
         tool_use_list: List[Dict],
         tool_references: List,
+        trace_mode: str = "default",
     ) -> bool:
         """
         Save a complete conversation turn to persistent storage.
@@ -93,6 +94,7 @@ class AgentHistoryManager:
                 chat_id=history.session_id,
                 message_id=message_id,
                 trace_id=trace_id,
+                metadata={"trace_mode": trace_mode},
                 files=files,
             )
             # Save human message (plain text for agent conversations)
@@ -106,6 +108,7 @@ class AgentHistoryManager:
                 trace_id=trace_id,
                 tool_use_list=tool_use_list,
                 references=tool_references,
+                metadata={"trace_mode": trace_mode},
                 # urls=,
             )
             await history.add_stored_message(ai_message)

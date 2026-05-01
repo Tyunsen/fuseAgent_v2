@@ -1,5 +1,6 @@
 'use client';
 
+import { UploadDocumentResponseStatusEnum } from '@/api';
 import { useCollectionContext } from '@/components/providers/collection-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +12,12 @@ import { useTranslations } from 'next-intl';
 import { useCallback, useState } from 'react';
 
 type Props = {
-  onSuccess: () => void;
+  onSuccess: (result: {
+    document_id?: string;
+    filename: string;
+    size: number;
+    status?: UploadDocumentResponseStatusEnum | string;
+  }) => void;
 };
 
 export const TextImport = ({ onSuccess }: Props) => {
@@ -33,12 +39,18 @@ export const TextImport = ({ onSuccess }: Props) => {
       // Create a File object from the text — reuses the existing upload endpoint entirely
       const file = new File([content], filename, { type: 'text/plain' });
 
-      await apiClient.defaultApi.collectionsCollectionIdDocumentsUploadPost({
+      const res =
+        await apiClient.defaultApi.collectionsCollectionIdDocumentsUploadPost({
         collectionId: collection.id,
         file,
       });
 
-      onSuccess();
+      onSuccess({
+        document_id: res.data.document_id,
+        filename,
+        size: file.size,
+        status: res.data.status,
+      });
     } finally {
       setIsUploading(false);
     }

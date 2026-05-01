@@ -29,6 +29,10 @@ web/npm-debug.log*
 *.egg-info/
 build/
 dist/
+coverage/
+*.log
+.env*
+.venv/
 
 # IDE and editor files
 .vscode/

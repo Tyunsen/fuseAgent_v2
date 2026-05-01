@@ -42,7 +42,12 @@ import {
   Trash,
 } from 'lucide-react';
 
-import { getDocumentStatusColor } from '@/app/workspace/collections/tools';
+import {
+  getDocumentStatusColor,
+  getMirofishDocumentGraphStatus,
+  isCollectionIndexStatusVisible,
+  isMirofishCollection,
+} from '@/app/workspace/collections/tools';
 import { useCollectionContext } from '@/components/providers/collection-provider';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -88,6 +93,28 @@ export function DocumentsTable({
     setSearchValue(query.search || '');
   }, [query]);
 
+  const shouldAutoRefreshGraphStatus = React.useMemo(() => {
+    if (!isMirofishCollection(collection.config)) {
+      return false;
+    }
+    const graphStatus = collection.config?.graph_status;
+    return graphStatus === 'building' || graphStatus === 'updating';
+  }, [collection.config]);
+
+  React.useEffect(() => {
+    if (!shouldAutoRefreshGraphStatus) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      router.refresh();
+    }, 15_000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [router, shouldAutoRefreshGraphStatus]);
+
   const handleSearch = React.useCallback(
     (params: { page?: number; pageSize?: number; search?: string }) => {
       const urlSearchParams = new URLSearchParams();
@@ -108,28 +135,17 @@ export function DocumentsTable({
     objectKeys(RebuildIndexesRequestIndexTypesEnum).map((key) => {
       const accessorKey = key.toLowerCase() + '_index_status';
 
-      const config = collection.config;
-      let enabled: boolean | undefined;
-      switch (key) {
-        case 'FULLTEXT':
-          enabled = config?.enable_fulltext;
-          break;
-        case 'GRAPH':
-          enabled = config?.enable_knowledge_graph;
-          break;
-        case 'SUMMARY':
-          enabled = config?.enable_summary;
-          break;
-        case 'VECTOR':
-          enabled = config?.enable_vector;
-          break;
-        case 'VISION':
-          enabled = config?.enable_vision;
-          break;
-        default:
-          enabled = false;
-      }
-      if (enabled) {
+      const enabled = isCollectionIndexStatusVisible(
+        collection.config,
+        key as
+          | 'FULLTEXT'
+          | 'GRAPH'
+          | 'SUMMARY'
+          | 'VECTOR'
+          | 'VISION',
+      );
+      const shouldRenderColumn = enabled;
+      if (shouldRenderColumn) {
         indexCols.push({
           accessorKey,
           header: page_collections(`index_type_${key}.title`),
@@ -137,6 +153,11 @@ export function DocumentsTable({
             <DocumentIndexStatus
               document={row.original}
               accessorKey={accessorKey}
+              statusOverride={
+                key === 'GRAPH' && isMirofishCollection(collection.config)
+                  ? getMirofishDocumentGraphStatus(collection.config)
+                  : undefined
+              }
             />
           ),
         });

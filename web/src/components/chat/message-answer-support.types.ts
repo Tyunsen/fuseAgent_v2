@@ -7,6 +7,7 @@ import {
 } from '@/api';
 
 const SOURCE_ID_SPLIT_REGEX = /(?:<SEP>|\|)/;
+export type TraceMode = 'default' | 'time' | 'space' | 'entity';
 
 export interface PreparedReferenceRow {
   id: string;
@@ -56,6 +57,10 @@ export interface AnswerGraphPayload {
   linked_row_ids: string[];
   is_empty: boolean;
   empty_reason?: string | null;
+  trace_mode?: TraceMode;
+  layout?: 'force' | 'timeline' | 'location' | 'focus';
+  focus_label?: string | null;
+  groups?: TraceGraphGroup[];
 }
 
 export interface AnswerGraphReferenceInput {
@@ -65,6 +70,219 @@ export interface AnswerGraphReferenceInput {
   document_name?: string;
   chunk_ids: string[];
 }
+
+export interface TraceGraphGroup {
+  id: string;
+  label: string;
+  kind?: 'default' | 'time' | 'space' | 'entity' | 'fallback';
+  node_ids: string[];
+  row_ids: string[];
+}
+
+export interface TraceConclusion {
+  id: string;
+  title: string;
+  statement: string;
+  source_row_ids: string[];
+  locator_quality: 'precise' | 'approximate';
+  time_label?: string | null;
+  place_label?: string | null;
+  focus_entity?: string | null;
+}
+
+export interface TraceSupportReferenceInput {
+  source_row_id: string;
+  text?: string;
+  snippet?: string;
+  document_id?: string;
+  document_name?: string;
+  preview_title?: string;
+  page_idx?: number;
+  section_label?: string;
+  chunk_ids: string[];
+  paragraph_precise: boolean;
+  md_source_map?: number[];
+  pdf_source_map?: Array<{
+    page_idx?: number;
+    bbox?: number[];
+    para_type?: string;
+  }>;
+}
+
+export interface TraceSupportRequestInput {
+  trace_mode: TraceMode;
+  question: string;
+  answer: string;
+  references: TraceSupportReferenceInput[];
+  max_conclusions?: number;
+  max_nodes?: number;
+}
+
+export interface TraceSupportPayload {
+  trace_mode: TraceMode;
+  normalized_focus?: string | null;
+  conclusions: TraceConclusion[];
+  graph: AnswerGraphPayload;
+  evidence_summary?: string | null;
+  fallback_used: boolean;
+}
+
+const CITATION_TOKEN_PATTERN = /\[(\d+)\]/g;
+const CITATION_TEXT_TOKEN_PATTERN = /[A-Za-z][A-Za-z0-9._-]*|[\u4e00-\u9fff]{2,}/g;
+
+const normalizeCitationText = (value: string): string =>
+  (value || '')
+    .toLowerCase()
+    .replace(/\[(\d+)\]/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const tokenizeCitationText = (value: string): string[] =>
+  normalizeCitationText(value).match(CITATION_TEXT_TOKEN_PATTERN) || [];
+
+const buildCitationToken = (indices: number[]): string =>
+  indices.map((index) => `[${index}]`).join('');
+
+const buildCitationAnchor = (index: number, rowId: string): string =>
+  `<a href="citation://${encodeURIComponent(rowId)}" data-citation-index="${index}" data-citation-row-id="${encodeURIComponent(rowId)}">[${index}]</a>`;
+
+const collectCitationNumbers = (line: string): number[] => {
+  const seen = new Set<number>();
+  const matches = line.matchAll(CITATION_TOKEN_PATTERN);
+  for (const match of matches) {
+    const index = Number(match[1]);
+    if (Number.isFinite(index)) {
+      seen.add(index);
+    }
+  }
+  return Array.from(seen).sort((a, b) => a - b);
+};
+
+const buildReferenceIndexMap = (rows: PreparedReferenceRow[]): Record<string, number> =>
+  rows.reduce<Record<string, number>>((result, row, index) => {
+    result[row.id] = index + 1;
+    return result;
+  }, {});
+
+const scoreConclusionForLine = (
+  line: string,
+  conclusion: TraceConclusion,
+): number => {
+  const lineText = normalizeCitationText(line);
+  const conclusionText = normalizeCitationText(conclusion.statement);
+  if (!lineText || !conclusionText) {
+    return 0;
+  }
+  if (lineText.includes(conclusionText) || conclusionText.includes(lineText)) {
+    return 1000 + Math.min(lineText.length, conclusionText.length);
+  }
+
+  const lineTokens = new Set(tokenizeCitationText(line));
+  const conclusionTokens = new Set(tokenizeCitationText(conclusion.statement));
+  if (!lineTokens.size || !conclusionTokens.size) {
+    return 0;
+  }
+
+  let overlap = 0;
+  conclusionTokens.forEach((token) => {
+    if (lineTokens.has(token)) {
+      overlap += 1;
+    }
+  });
+
+  if (!overlap) {
+    return 0;
+  }
+
+  return overlap * 100 + Math.min(lineTokens.size, conclusionTokens.size);
+};
+
+export const annotateAnswerWithCitations = (
+  answer: string,
+  conclusions: TraceConclusion[],
+  rows: PreparedReferenceRow[],
+): string => {
+  if (!answer.trim() || !conclusions.length || !rows.length) {
+    return answer;
+  }
+
+  const referenceIndexMap = buildReferenceIndexMap(rows);
+  const referenceRowByIndex = rows.reduce<Record<number, PreparedReferenceRow>>(
+    (result, row, index) => {
+      result[index + 1] = row;
+      return result;
+    },
+    {},
+  );
+  const lines = answer.split('\n');
+  const markersByLine = new Map<number, Set<number>>();
+
+  conclusions.forEach((conclusion) => {
+    const citationIndexes = Array.from(
+      new Set(
+        conclusion.source_row_ids
+          .map((rowId) => referenceIndexMap[rowId])
+          .filter((value): value is number => Number.isFinite(value)),
+      ),
+    ).sort((a, b) => a - b);
+
+    if (!citationIndexes.length) {
+      return;
+    }
+
+    let bestLineIndex = -1;
+    let bestScore = 0;
+
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) {
+        return;
+      }
+      const score = scoreConclusionForLine(line, conclusion);
+      if (score > bestScore) {
+        bestScore = score;
+        bestLineIndex = index;
+      }
+    });
+
+    if (bestLineIndex < 0 || bestScore <= 0) {
+      return;
+    }
+
+    const markerSet = markersByLine.get(bestLineIndex) || new Set<number>();
+    citationIndexes.forEach((index) => markerSet.add(index));
+    markersByLine.set(bestLineIndex, markerSet);
+  });
+
+  const annotated = lines
+    .map((line, index) => {
+      const markerSet = markersByLine.get(index);
+      if (!markerSet || !markerSet.size) {
+        return line;
+      }
+      const existing = new Set(collectCitationNumbers(line));
+      const merged = Array.from(new Set([...existing, ...markerSet])).sort(
+        (a, b) => a - b,
+      );
+      if (!merged.length) {
+        return line;
+      }
+      return `${line}${buildCitationToken(merged.filter((value) => !existing.has(value)))}`
+        .replace(/\s+\[/g, '[')
+        .trimEnd();
+    })
+    .join('\n');
+
+  return annotated.replace(CITATION_TOKEN_PATTERN, (match, rawIndex) => {
+    const index = Number(rawIndex);
+    const row = referenceRowByIndex[index];
+    if (!row) {
+      return match;
+    }
+    return buildCitationAnchor(index, row.id);
+  });
+};
 
 export const splitSourceIds = (value: unknown): string[] => {
   if (Array.isArray(value)) {
@@ -424,7 +642,7 @@ const limitPreparedReferenceRows = (
 
 export const prepareReferenceRows = (
   references: Reference[],
-  maxRows = 5,
+  maxRows = 15,
 ): PreparedReferenceRow[] => {
   const rows = new Map<string, PreparedReferenceRow>();
 
@@ -530,3 +748,52 @@ export const buildAnswerGraphReferences = (
     document_name: row.documentName,
     chunk_ids: row.chunkIds,
   }));
+
+export const buildTraceSupportRequest = ({
+  rows,
+  question,
+  answer,
+  traceMode,
+}: {
+  rows: PreparedReferenceRow[];
+  question: string;
+  answer: string;
+  traceMode: TraceMode;
+}): TraceSupportRequestInput => ({
+  trace_mode: traceMode,
+  question,
+  answer,
+  max_conclusions: 8,
+  max_nodes: 36,
+  references: rows.map((row) => ({
+    source_row_id: row.id,
+    text: row.text,
+    snippet: row.snippet,
+    document_id: row.documentId,
+    document_name: row.documentName,
+    preview_title: row.previewTitle,
+    page_idx: row.pageIdx,
+    section_label: row.sectionLabel,
+    chunk_ids: row.chunkIds,
+    paragraph_precise: row.paragraphPrecise,
+    md_source_map: row.mdSourceMap,
+    pdf_source_map: row.pdfSourceMap.map((item) => ({
+      page_idx: item.pageIdx,
+      bbox: item.bbox,
+      para_type: item.paraType,
+    })),
+  })),
+});
+
+export const buildConclusionMapByRowId = (
+  conclusions: TraceConclusion[],
+): Record<string, TraceConclusion[]> =>
+  conclusions.reduce<Record<string, TraceConclusion[]>>((result, conclusion) => {
+    conclusion.source_row_ids.forEach((rowId) => {
+      if (!result[rowId]) {
+        result[rowId] = [];
+      }
+      result[rowId]?.push(conclusion);
+    });
+    return result;
+  }, {});

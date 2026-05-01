@@ -1,132 +1,166 @@
 <!--
 Sync Impact Report
-Version change: template -> 1.0.0
+Version change: 1.10.0 -> 1.11.0
 Modified principles:
-- Template Principle 1 -> I. Business-Requirements-First, Incremental by Default
-- Template Principle 2 -> II. Reference-First Reuse Over Net-New Code
-- Template Principle 3 -> III. Unified Answer, Evidence, Graph Product Contract
-- Template Principle 4 -> IV. UI Changes Require Explicit Authorization
-- Template Principle 5 -> V. Server Reality Overrides Assumptions
+- I. 严格验收先行 -> I. 严格验收先行
 Added sections:
-- Implementation Boundaries
-- Development Workflow & Quality Gates
+- 无
 Removed sections:
-- None
+- 无
 Templates requiring updates:
-- updated .specify/templates/plan-template.md
-- updated .specify/templates/spec-template.md
-- updated .specify/templates/tasks-template.md
-- pending .specify/templates/commands/*.md (directory absent in this repository)
+- ✅ .specify/templates/plan-template.md（已检查，无需修改）
+- ✅ .specify/templates/spec-template.md（已检查，无需修改）
+- ✅ .specify/templates/tasks-template.md（已检查，无需修改）
+- ⚠ .specify/templates/commands/*.md（目录不存在，无可同步文件）
+- ✅ README.md（已检查，无需同步修改）
 Follow-up TODOs:
-- None
+- 无
 -->
 # fuseAgent Constitution
 
 ## Core Principles
 
-### I. Business-Requirements-First, Incremental by Default
-Every `/speckit.specify` feature MUST map to the currently requested business
-increment and the relevant sections of `BUSINESS-REQUIREMENTS.md`. Plans, tasks,
-and implementation MUST stay inside that slice; unrelated requirements MUST be
-called out as out of scope instead of being bundled into the same feature.
-`/speckit.plan`, `/speckit.tasks`, and implementation MAY be automated after a
-feature spec exists, but only for that approved increment, not for the full
-product backlog.
+### I. 严格验收先行
+每一个通过 `/speckit.specify` 进入实施阶段的 feature，在实现完成后都 MUST
+先通过本宪章定义的严格验收标准，才允许宣布完成。对于影响知识库构建、检索、问答、引用、图谱展示或三脉络模式的实现，严格验收 MUST
+统一使用 `E:\codes\fuseAgent_v2\iw_docs` 作为验收数据集，并遵守以下硬门槛：
 
-This keeps scope reviewable and prevents one-shot overbuilding that hides
-unfinished or unapproved work.
+- 向量索引、全文索引和图索引全部完成的总时间 MUST 不超过 4 分钟。
+- collection-level graph 页面 MUST 正常渲染，不得出现空白、崩溃、接口 400/500 或回退占位。
+- 验收知识库的图谱节点数量 MUST 大于 80。
+- 验收知识库的图谱关系数量 MUST 大于 100。
+- 当 collection-level graph 已 ready 时，answer-support 或 trace-support 仍显示“图暂不可用”，MUST 视为缺陷。
 
-### II. Reference-First Reuse Over Net-New Code
-Before introducing new architecture, modules, or UI, contributors MUST evaluate
-whether the requirement can be satisfied by reusing or adapting code and
-patterns from `E:\codes\fuseAgent_v2\LightRAG`,
-`E:\codes\fuseAgent_v2\llm-graph-builder`, or
-`E:\codes\fuseAgent_v2\MiroFish`. Major plans MUST name the candidate source or
-sources for reuse and identify what will be copied, wrapped, or adapted.
-Net-new code is allowed only when reuse is not viable for the current
-increment, and that reason MUST be recorded in the plan or task notes.
+对 QA 展示与交互类需求，以下事项默认属于系统级严格验收项：
 
-This keeps delivery fast, reduces unnecessary reinvention, and grounds
-implementation in proven code paths.
+- 时间脉络模式主图的类型正确性、标签可读性和时间分布真实性。
+- 正文内联引用 `[n]` 的存在、位置正确性与可点击性。
+- 右侧“参考文档来源”抽屉的打开与定位行为。
+- 实体脉络模式在 `@知识库` 且图索引可用时的非空子图输出。
 
-### III. Unified Answer, Evidence, Graph Product Contract
-fuseAgent MUST ship as a single knowledge-base question answering product for
-internal users, not as an engine comparison surface. Every user-facing Q&A
-increment MUST preserve the contract defined in `BUSINESS-REQUIREMENTS.md`:
-answer text, traceable evidence, and related graph are one coherent result.
-When evidence is insufficient, the system MUST explicitly say "current evidence
-insufficient" or the approved Chinese equivalent used by the product, and MUST
-NOT fabricate support. Unless the user explicitly expands scope, v1 MUST remain
-focused on single-knowledge-base Q&A, document management, evidence
-traceability, and graph viewing for PDF, Word, Markdown, and TXT documents.
+对问答展示与证据交互类需求，严格验收同时 MUST 覆盖以下模式化答案契约：
 
-This preserves the core product promise and prevents the user experience from
-drifting into a research console.
+默认模式：
+- MUST 输出文本回答、正文内联引用、流程拓扑图、来源抽屉入口。
+- MUST NOT 把引用数字渲染成脱离正文的独立数字列表。
 
-### IV. UI Changes Require Explicit Authorization
-If the user has not provided specific UI requirements, contributors MUST NOT
-invent new UI flows, visual concepts, or speculative interaction patterns.
-Approved UI work MUST align with the business requirements and named references:
-overall product UI follows ApeRAG and the provided prototypes; graph-related UI
-follows MiroFish. Specs and plans MUST record whether a feature has `No UI
-change`, `UI parity/adaptation`, or `New approved UI work`, and any UI tasks
-outside that declaration are non-compliant.
+时间脉络模式：
+- MUST 只在用户明确 `@知识库` 的前提下启用；未明确 `@知识库` 时不得直接进入时间脉络模式结果。
+- MUST 以单一时间甘特主图为核心。
+- 主图标签 MUST 面向用户可读，不得使用“时间结论1/2/3”等内部编号。
+- 当证据存在多个不同日期或时间段时，MUST 把事件展开到不同时间位置，不得默认把所有事件压到同一天。
+- MUST NOT 在主图下方追加重复的次级说明卡片、时间筹码卡片或额外关联卡片。
 
-This prevents unnecessary design churn and keeps the implementation faithful to
-the product owner's intent.
+空间脉络模式：
+- MUST 只在用户明确 `@知识库` 的前提下启用；未明确 `@知识库` 时不得直接进入空间脉络模式结果。
+- MUST 在回答壳层上与默认模式保持一致。
+- MUST NOT 额外增加独立的脉络摘要、重点结论、来源卡片或额外关联图谱卡片。
+- MUST 使用与默认模式一致的 `graph TD` 流程拓扑图，而不是单独的地点焦点甘特图方案，除非后续有新的宪章修订再次改变该要求。
 
-### V. Server Reality Overrides Assumptions
-Operational plans, scripts, and deployment steps MUST follow the user-provided
-server reference file as the source of truth unless the user explicitly
-overrides it. New server work MUST stay under
-`/home/common/jyzhu/ucml`, prefer currently idle GPUs, and include local
-port-forwarding to an available local port when remote services need access.
-Features MUST be designed for the actual server and resource envelope rather
-than assumed infrastructure.
+实体脉络模式：
+- MUST 只在用户明确 `@知识库` 的前提下启用；未明确 `@知识库` 时不得直接进入实体脉络模式结果。
+- MUST 在默认模式基础上输出回答相关的知识图谱子图；子图中的实体和边 MUST 仅来自本次回答涉及到的实体和边。
+- 当用户明确 `@知识库` 且该知识库图索引已完成、整体图谱可用时，MUST NOT 轻易降级为空图；若首次映射失败，必须继续尝试生成与回答相关的子图。
 
-This keeps delivery grounded in the environment that will actually run the
-system.
+证据交互：
+- 正文引用 MUST 以内联 `[n]` 形式出现在实际被引用的句子位置，而不是作为回复卡片角落的独立数字列表。
+- 点击正文中的 `[n]` 引用标号后，系统 MUST 打开右侧“参考文档来源”抽屉并定位到对应编号的来源条目。
+- 中文环境下，来源入口的默认可见文案 MUST 为 `参考文档来源`，除非当前 feature 的 spec 明确要求别的产品文案。
 
-## Implementation Boundaries
+只要严格验收项未通过，agent 就 MUST 持续执行闭环修复流程：复现问题、定位原因、修改实现、重新部署、使用同一验收样例复测。不得以“大体可用”“局部通过”“还差一点”作为结束条件。只有在以下两种情况下才允许停止：
 
-- `BUSINESS-REQUIREMENTS.md` is the governing product scope for fuseAgent.
-- The default technical direction is retrieval and Q&A centered on LightRAG,
-  extraction and graph construction centered on MiroFish, and selective
-  reference to `llm-graph-builder` for graph, ingestion, and product patterns.
-- The final product MUST hide underlying engine switching from end users unless
-  the user explicitly asks for an internal evaluation surface.
-- v1 defaults to internal-admin usage, single knowledge base workflows, and the
-  document formats already listed in `BUSINESS-REQUIREMENTS.md`.
-- Multi-tenant features, complex role systems, image-first understanding, and
-  speculative platformization are out of scope until explicitly requested.
+- 全部严格验收标准已通过；
+- 出现了 agent 无法自行排除的外部阻塞，并且已提供可验证的阻塞证据、影响范围和下一步人工介入点。
 
-## Development Workflow & Quality Gates
+这样可以把“必须过线”从执行偏好升级为硬性治理规则，也避免系统要求散落在多处文档里互相覆盖。
 
-- Every feature spec MUST include:
-  business requirement traceability, the approved increment, explicit out of
-  scope items, reference reuse candidates, and a UI scope declaration.
-- Every implementation plan MUST pass a constitution check that answers:
-  what increment is being built, what existing code will be reused, what UI
-  scope is allowed, what server constraints apply, and what verification proves
-  the change.
-- Every task list MUST be ordered so the current increment can stop cleanly
-  after a user story or checkpoint; unrelated backlog expansion is forbidden.
-- Each implementation increment MUST include the smallest repeatable
-  verification needed to prove the changed behavior. Changes touching answer,
-  evidence, graph linkage, or deployment MUST include explicit validation for
-  those behaviors.
-- Merge or handoff review MUST confirm constitution compliance and record any
-  approved exception in the relevant plan, task list, or review notes.
+### II. 服务器侧执行与远端验收
+本地环境用于开发、静态检查和快速调试；每一个 feature 的最终验收 MUST 在远端服务器的真实部署栈上完成。
+任何影响可运行行为的增量，MUST 在服务器启动服务后验证，不得只以本地单测、lint 或 build
+通过作为“完成”的依据。若本地与远端结果不一致，以远端结果为准，并优先修复远端问题。
+若当前 feature 没有在 spec 或 plan 中明确覆盖新的远端环境信息，则远端主机、账号、默认工作目录和端口转发相关的基础上下文 MUST 以
+`E:\codes\fuseAgent_v2\服务器.txt` 为默认权威来源。
+
+当实现影响前后端、索引构建、Celery、图谱或问答模式时，资源消耗型操作 MUST 默认放在服务器侧执行，包括但不限于：
+
+- 服务启动与重启
+- 全量文档导入
+- 向量 / 全文 / 图索引构建
+- 图谱抽取与相关后台任务
+- 远端运行时 smoke 与自动化验收链路
+
+本地机器默认只承担以下轻量职责：
+
+- 端口转发
+- 打开远端服务对应的本地访问地址
+- 使用浏览器或自动化浏览器进行模拟测试
+- 查看和比对最终页面与接口表现
+
+交付说明 MUST 明确给出：
+
+- 远端服务启动命令
+- 远端运行目录
+- 本地转发后的访问地址
+- 至少一个可直接打开的前端 URL
+- 至少一个可直接验证的 API URL
+
+这样可以保证交付结果面对的是最终用户真实访问的环境，而不是开发机假设。
+
+### III. 记忆最小化与清理
+`.specify/memory/constitution.md` 是当前唯一的 spec-level 治理记忆文件；所有已过期、与当前产品方向冲突、
+或已经被新验收标准替代的条目 MUST 直接删除，而不是继续并存。新增记忆 MUST 是可执行、可验收、
+可追责的规则，不得保留含糊、历史包袱式的条款。
+
+这样可以防止“旧记忆覆盖新目标”，让宪章始终服务当前产品验收。
+
+### IV. UI 正确分支保护
+当前被确认“UI 是对的”的基线版本是：
+`https://github.com/Tyunsen/fuseAgent_v2/tree/ui-satisfied-graph-workbench`
+
+凡是涉及 UI 继续开发、UI 修复、UI 对齐、图谱工作台、三脉络展示或交互层修改的工作，MUST
+优先将该分支视为视觉和交互基线。如果当前工作分支上的 UI 表现与该分支冲突，默认以该分支为准，
+除非用户明确要求偏离它。
+
+任何新的 UI 实现 MUST 在新的工作分支上进行，MUST NOT 直接污染、覆盖或继续在
+`ui-satisfied-graph-workbench` 这条正确基线分支上累积开发。若需要从该分支继续写，MUST
+先显式创建新的分支或等价的隔离工作副本，再开始改动。
+
+这样可以保护已被确认正确的 UI 基线，避免后续实验性修改反向破坏验收通过的视觉版本。
+
+## 开发流程与质量门禁
+
+- 所有 `/speckit.specify`、`/speckit.plan`、`/speckit.tasks` 产物 MUST 与本宪章一致。
+- 每一个 spec feature 完成实现后，MUST 再次执行本宪章规定的系统级验收，而不是把这些门槛视为阶段性或一次性要求。
+- `plan.md` MUST 明确写出：
+  - 是否触发 `iw_docs` 全量验收
+  - 远端部署、服务启动、端口转发与本地浏览器验证路径
+  - 严格验收门槛与模式化回答契约
+  - 若涉及 QA 展示，必须写出时间主图、正文引用、来源抽屉、实体子图的严格验收标准
+  - 若涉及 UI，当前采用的 UI 基线分支以及新分支隔离策略
+- `tasks.md` MUST 包含：
+  - `iw_docs` 导入任务
+  - 4 分钟索引预算验证任务
+  - 服务器侧服务启动、重启与本地端口转发任务
+  - 默认/时间/实体/空间模式验收任务
+  - 若涉及 QA 展示，必须包含新消息实测任务，而不是只使用历史消息
+  - 若涉及 UI，从 `ui-satisfied-graph-workbench` 基线隔离出新工作分支的任务
+- 实现结束后，至少需要通过：相关后端测试、前端 lint/build、远端服务可访问验证。
+- 若 collection-level 图已 ready，自动化验收 MUST 进一步验证 graph 页面渲染成功、节点数和关系数达标。
 
 ## Governance
 
-This constitution supersedes local defaults for specs, plans, tasks, and
-implementation decisions in this repository. Amendments require explicit user
-approval and synchronization of dependent templates before they are considered
-active. Versioning follows semantic rules for governance changes: MAJOR for
-backward-incompatible principle changes or removals, MINOR for new principles
-or materially expanded guidance, and PATCH for clarifications that do not alter
-working expectations. Compliance review is mandatory for every generated or
-manually edited spec, plan, tasks file, and implementation review.
+本宪章高于本仓库中的 spec、plan、tasks 和常规实现习惯。凡与本宪章冲突的旧规则、旧计划、
+旧记忆或历史经验，均以本宪章为准。
 
-**Version**: 1.0.0 | **Ratified**: 2026-03-21 | **Last Amended**: 2026-03-21
+修订规则如下：
+- MAJOR：删除或重定义现有核心原则，导致治理语义发生不兼容变化
+- MINOR：新增或实质扩展新的强制性原则、验收门槛或治理章节
+- PATCH：仅做措辞澄清、错别字修复或不改变执行含义的微调
+
+合规要求如下：
+- 每次修改宪章都 MUST 更新版本号与修订日期
+- 每次宪章修订都 MUST 检查并同步 `.specify/templates/plan-template.md`、
+  `.specify/templates/spec-template.md`、`.specify/templates/tasks-template.md`
+- 若存在无法立即明确的验收项，MUST 以 `TODO(...)` 形式显式记录，并在最终汇报中说明
+
+**Version**: 1.11.0 | **Ratified**: 2026-03-21 | **Last Amended**: 2026-04-05

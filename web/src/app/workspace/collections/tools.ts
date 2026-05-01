@@ -4,6 +4,7 @@ import {
   CollectionConfigGraphStatusEnum,
   CollectionViewStatusEnum,
   DocumentStatusEnum,
+  DocumentVectorIndexStatusEnum,
   type CollectionConfig,
   type CollectionView,
   type Document,
@@ -77,6 +78,117 @@ export const shouldShowCollectionGraph = (
 ) =>
   isMirofishCollection(collectionConfig) ||
   Boolean(collectionConfig?.enable_knowledge_graph);
+
+export type CollectionIndexStatusType =
+  | 'VECTOR'
+  | 'FULLTEXT'
+  | 'GRAPH'
+  | 'SUMMARY'
+  | 'VISION';
+
+export const isCollectionIndexStatusVisible = (
+  collectionConfig: CollectionConfig | null | undefined,
+  indexType: CollectionIndexStatusType,
+) => {
+  switch (indexType) {
+    case 'VECTOR':
+      return Boolean(collectionConfig?.enable_vector);
+    case 'FULLTEXT':
+      return Boolean(collectionConfig?.enable_fulltext);
+    case 'GRAPH':
+      return isMirofishCollection(collectionConfig);
+    case 'SUMMARY':
+      return Boolean(collectionConfig?.enable_summary);
+    case 'VISION':
+      return Boolean(collectionConfig?.enable_vision);
+    default:
+      return false;
+  }
+};
+
+type DocumentIndexStatusValue = DocumentVectorIndexStatusEnum;
+
+const indexStatusSortOrder: DocumentIndexStatusValue[] = [
+  DocumentVectorIndexStatusEnum.ACTIVE,
+  DocumentVectorIndexStatusEnum.CREATING,
+  DocumentVectorIndexStatusEnum.PENDING,
+  DocumentVectorIndexStatusEnum.FAILED,
+  DocumentVectorIndexStatusEnum.DELETION_IN_PROGRESS,
+  DocumentVectorIndexStatusEnum.DELETING,
+  DocumentVectorIndexStatusEnum.SKIPPED,
+];
+
+export const sortDocumentIndexStatuses = (
+  statuses: DocumentIndexStatusValue[],
+) =>
+  [...statuses].sort(
+    (left, right) =>
+      indexStatusSortOrder.indexOf(left) - indexStatusSortOrder.indexOf(right),
+  );
+
+export const getDocumentIndexStatusLabel = (
+  status: DocumentIndexStatusValue | undefined,
+  locale: string,
+) => {
+  const isChinese = isChineseLocale(locale);
+
+  switch (status) {
+    case DocumentVectorIndexStatusEnum.ACTIVE:
+      return isChinese ? '已就绪' : 'Active';
+    case DocumentVectorIndexStatusEnum.CREATING:
+      return isChinese ? '构建中' : 'Building';
+    case DocumentVectorIndexStatusEnum.PENDING:
+      return isChinese ? '等待中' : 'Pending';
+    case DocumentVectorIndexStatusEnum.FAILED:
+      return isChinese ? '失败' : 'Failed';
+    case DocumentVectorIndexStatusEnum.DELETING:
+      return isChinese ? '删除中' : 'Deleting';
+    case DocumentVectorIndexStatusEnum.DELETION_IN_PROGRESS:
+      return isChinese ? '删除处理中' : 'Removing';
+    case DocumentVectorIndexStatusEnum.SKIPPED:
+    default:
+      return isChinese ? '已跳过' : 'Skipped';
+  }
+};
+
+export const getDocumentIndexStatusVariant = (
+  status: DocumentIndexStatusValue | undefined,
+): 'outline' | 'secondary' | 'destructive' | 'default' => {
+  switch (status) {
+    case DocumentVectorIndexStatusEnum.ACTIVE:
+      return 'outline';
+    case DocumentVectorIndexStatusEnum.FAILED:
+      return 'destructive';
+    case DocumentVectorIndexStatusEnum.CREATING:
+    case DocumentVectorIndexStatusEnum.PENDING:
+    case DocumentVectorIndexStatusEnum.DELETING:
+    case DocumentVectorIndexStatusEnum.DELETION_IN_PROGRESS:
+    case DocumentVectorIndexStatusEnum.SKIPPED:
+    default:
+      return 'secondary';
+  }
+};
+
+export const getMirofishDocumentGraphStatus = (
+  collectionConfig: CollectionConfig | null | undefined,
+): DocumentIndexStatusValue => {
+  const graphStatus =
+    collectionConfig?.graph_status ||
+    CollectionConfigGraphStatusEnum.waiting_for_documents;
+
+  switch (graphStatus) {
+    case CollectionConfigGraphStatusEnum.ready:
+      return DocumentVectorIndexStatusEnum.ACTIVE;
+    case CollectionConfigGraphStatusEnum.failed:
+      return DocumentVectorIndexStatusEnum.FAILED;
+    case CollectionConfigGraphStatusEnum.waiting_for_documents:
+      return DocumentVectorIndexStatusEnum.PENDING;
+    case CollectionConfigGraphStatusEnum.building:
+    case CollectionConfigGraphStatusEnum.updating:
+    default:
+      return DocumentVectorIndexStatusEnum.CREATING;
+  }
+};
 
 export const canUseLegacyGraphSearch = (
   collectionConfig?: CollectionConfig | null,
@@ -279,15 +391,15 @@ export const getCollectionGraphStatusCopy = (
       return {
         badge: isChinese ? '等待上传文档' : 'Waiting for Documents',
         description: isChinese
-          ? '知识库壳子已创建。请先上传并添加文档，系统会开始首次建图。'
-          : 'The knowledge base shell is ready. Upload documents to start the first graph build.',
+          ? '上传文档后，系统就会开始构建首版图谱。'
+          : 'Upload documents to start the first graph build.',
         variant: 'secondary',
       };
     case CollectionConfigGraphStatusEnum.building:
       return {
         badge: isChinese ? '首次建图中' : 'Initial Build',
         description: isChinese
-          ? '系统正在根据已确认文档生成首版图谱，完成前不开放问答。'
+          ? '系统正在根据已加入知识库的文档生成首版图谱，完成前暂不开放问答。'
           : 'The first graph build is in progress, so Q&A remains blocked.',
         variant: 'secondary',
       };
@@ -296,11 +408,11 @@ export const getCollectionGraphStatusCopy = (
         badge: isChinese ? '图谱更新中' : 'Updating',
         description: isChinese
           ? hasActiveGraph
-            ? '可以继续问答，但结果可能落后于最新上传的文档。'
-            : '系统正在用最新文档重建首版图谱，问答会在完成后开放。'
+            ? '可以继续问答，但结果可能还没有包含刚上传的最新内容。'
+            : '系统正在根据最新加入的文档构建首版图谱，完成后会开放问答。'
           : hasActiveGraph
             ? 'Q&A is available, but results may lag behind the latest uploads.'
-            : 'The initial graph is rebuilding with the latest documents, and Q&A will open afterward.',
+            : 'The initial graph is being built with the latest documents, and Q&A will open afterward.',
         variant: 'secondary',
       };
     case CollectionConfigGraphStatusEnum.failed:
@@ -309,7 +421,7 @@ export const getCollectionGraphStatusCopy = (
         description: isChinese
           ? hasActiveGraph
             ? '最近一次图谱更新失败，系统仍保留上一版可用图谱。'
-            : '首次建图失败，请检查文档或模型配置后重新上传/重试。'
+            : '首次建图失败，请检查文档或模型配置后重试。'
           : hasActiveGraph
             ? 'The latest graph update failed, but the previous graph is still available.'
             : 'The initial graph build failed. Check the documents or model configuration and retry.',
@@ -345,21 +457,21 @@ export const getQueryAccessCopy = (
       return {
         badge: isChinese ? '先上传文档' : 'Add Documents',
         description: isChinese
-          ? '先添加至少一份文档，系统才能开始建图并开放问答。'
+          ? '先上传至少一份文档，系统才会开始建图并开放问答。'
           : 'Add at least one document so the system can start building the graph and unlock Q&A.',
       };
     case 'initial_build':
       return {
         badge: isChinese ? '首次建图中' : 'First Build',
         description: isChinese
-          ? '首次建图完成前，不允许提问。'
+          ? '首版图谱完成前，暂不开放问答。'
           : 'Q&A stays blocked until the first graph build finishes.',
       };
     case 'updating':
       return {
         badge: isChinese ? '更新中' : 'Updating',
         description: isChinese
-          ? '可以继续提问，但结果可能滞后于最新上传的文档。'
+          ? '可以继续提问，但结果可能还没有包含最新上传的内容。'
           : 'Q&A is available, but results may lag behind the latest uploads.',
       };
     case 'graph_failed':

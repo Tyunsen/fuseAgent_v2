@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 class FulltextSearchInput(BaseModel):
     query: str = Field(..., description="User's question or query")
-    top_k: int = Field(5, description="Number of top results to return")
+    top_k: int = Field(12, description="Number of top results to return")
     collection_ids: Optional[List[str]] = Field(default_factory=list, description="Collection IDs")
     keywords: Optional[List[str]] = Field(
         default_factory=list, description="Custom keywords to use for fulltext search"

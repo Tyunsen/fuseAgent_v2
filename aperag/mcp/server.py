@@ -75,7 +75,7 @@ async def search_collection(
     use_summary_index: bool = True,
     use_vision_index: bool = True,
     rerank: bool = True,
-    topk: int = 5,
+    topk: int = 12,
     query_keywords: list[str] = None,
 ) -> Dict[str, Any]:
     """Search for knowledge in a persistent collection/knowledge base using vector, full-text, graph, and/or summary search.
@@ -95,7 +95,7 @@ async def search_collection(
         use_summary_index: Whether to use summary search (default: True)
         use_vision_index: Whether to use vision search (default: True)
         rerank: Whether to enable reranking of search results for better relevance (default: True)
-        topk: Maximum number of results to return per search type (default: 5)
+        topk: Maximum number of results to return per search type (default: 12)
 
     Returns:
         Search results with relevant documents and metadata (SearchResult format)
@@ -218,7 +218,7 @@ async def search_chat_files(
     use_vector_index: bool = True,
     use_fulltext_index: bool = True,
     rerank: bool = True,
-    topk: int = 5,
+    topk: int = 12,
 ) -> Dict[str, Any]:
     """Search ONLY within files temporarily uploaded by the user in THIS specific chat session.
 
@@ -239,7 +239,7 @@ async def search_chat_files(
         use_vector_index: Whether to use vector/semantic search (default: True)
         use_fulltext_index: Whether to use full-text keyword search (default: True)
         rerank: Whether to enable reranking of search results for better relevance (default: True)
-        topk: Maximum number of results to return per search type (default: 5)
+        topk: Maximum number of results to return per search type (default: 12)
 
     Returns:
         Search results with relevant documents and metadata (SearchResult format)

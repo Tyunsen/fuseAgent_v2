@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # User input model for vector search node
 class VectorSearchInput(BaseModel):
-    top_k: int = Field(5, description="Number of top results to return")
+    top_k: int = Field(12, description="Number of top results to return")
     similarity_threshold: float = Field(0.2, description="Similarity threshold for vector search")
     collection_ids: Optional[List[str]] = Field(default_factory=list, description="Collection IDs")
     chat_id: Optional[str] = Field(None, description="Chat ID to filter chat documents")

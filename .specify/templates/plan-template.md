@@ -31,18 +31,35 @@
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-- [ ] Scope is limited to the approved increment and mapped to specific sections
-      of `BUSINESS-REQUIREMENTS.md`.
-- [ ] Out-of-scope items are explicit and are not silently included in this
-      plan.
-- [ ] Reuse candidates from `LightRAG`, `llm-graph-builder`, `MiroFish`, or
-      the existing repo are identified; any net-new code is justified.
-- [ ] UI impact matches the spec's declared UI scope: `No UI change`,
-      `UI parity/adaptation`, or `New approved UI work`.
-- [ ] Server or deployment changes, if any, follow the user-provided server
-      reference file and do not assume unsupported infrastructure.
-- [ ] Verification proves the changed behavior, especially answer/evidence/graph
-      linkage and evidence-insufficient handling when applicable.
+[Gates determined based on constitution file]
+
+- [ ] Acceptance plan identifies whether this feature must import all documents
+      from `E:\codes\fuseAgent_v2\iw_docs`, and if so, records the full-index
+      completion budget of 4 minutes or less.
+- [ ] Validation plan states the required graph quality thresholds when graph
+      behavior changes: rendered collection graph, node count > 80, edge count > 100.
+- [ ] If QA mode behavior changes, the plan names the required output contract
+      for default, time, entity, and space-trace behavior, including the
+      current constitution rule that space trace stays shell-compatible with
+      default mode and uses the same `graph TD` flow topology unless the
+      constitution is revised again.
+- [ ] If QA display or citation behavior changes, the plan explicitly names the
+      strict acceptance contract for inline `[n]` citations, right-side
+      `参考文档来源` drawer behavior, time-mode single gantt readability, and
+      entity-mode non-empty subgraph behavior when the user explicitly `@`
+      selects a graph-ready collection.
+- [ ] If UI behavior changes, the plan identifies the approved UI baseline
+      branch/reference (currently `ui-satisfied-graph-workbench` when applicable)
+      and states how new work stays isolated from that correct branch.
+- [ ] Post-implement validation identifies whether runnable behavior changes
+      and, if so, names the service startup or restart command, access path,
+      required built artifact path (for example `web/build` when applicable),
+      and any environment constraint that could block user verification.
+- [ ] Remote verification names the server startup path, local port-forward
+      target, and automated acceptance path used for final sign-off.
+- [ ] The plan identifies all constitution-tagged strict acceptance items and
+      states that implementation must continue in a fix/redeploy/reverify loop
+      until they pass or an external blocker is proven.
 
 ## Project Structure
 

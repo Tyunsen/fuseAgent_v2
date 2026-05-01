@@ -56,7 +56,7 @@ from aperag.utils.utils import calculate_file_hash, generate_vector_db_collectio
 from aperag.vectorstore.connector import VectorStoreConnectorAdaptor
 
 logger = logging.getLogger(__name__)
-MIROFISH_GRAPH_QUEUE_DELAY_SECONDS = 10
+MIROFISH_GRAPH_QUEUE_DELAY_SECONDS = 0
 
 
 def _trigger_index_reconciliation():
@@ -385,6 +385,27 @@ class DocumentService:
             updated=document.gmt_updated,
         )
 
+    async def _queue_mirofish_graph_build(self, user_id: str, collection_id: str) -> None:
+        graph_revision = None
+        try:
+            graph_revision = await mirofish_graph_service.prepare_graph_build(user_id, collection_id)
+            if graph_revision is not None:
+                from config.celery_tasks import mirofish_collection_graph_task
+
+                mirofish_collection_graph_task.apply_async(
+                    args=(collection_id, graph_revision),
+                    countdown=MIROFISH_GRAPH_QUEUE_DELAY_SECONDS,
+                )
+        except Exception as exc:
+            logger.error(
+                "Failed to queue MiroFish graph build for collection %s: %s",
+                collection_id,
+                exc,
+                exc_info=True,
+            )
+            if graph_revision is not None:
+                mirofish_graph_service.handle_build_failure(collection_id, graph_revision, str(exc))
+
     async def create_documents(
         self,
         user: str,
@@ -423,7 +444,10 @@ class DocumentService:
             )
 
         # Process all files in a single transaction for atomicity
+        new_documents_created = 0
+
         async def _create_documents_atomically(session):
+            nonlocal new_documents_created
             # Check quotas
             await self._check_document_quotas(session, user, collection_id, len(files))
 
@@ -459,6 +483,7 @@ class DocumentService:
                     custom_metadata=custom_metadata,
                     content_hash=file_info["file_hash"],
                 )
+                new_documents_created += 1
 
                 # Create indexes
                 await document_index_manager.create_or_update_document_indexes(
@@ -473,7 +498,12 @@ class DocumentService:
 
         response = await self.db_ops.execute_with_transaction(_create_documents_atomically)
 
-        # Trigger index reconciliation after successful document creation
+        if new_documents_created > 0:
+            await self._queue_mirofish_graph_build(user, collection_id)
+
+        # Trigger index reconciliation after graph build has been queued so the
+        # collection-level graph task is not unnecessarily delayed behind the
+        # document index fan-out.
         _trigger_index_reconciliation()
 
         return DocumentList(items=response)
@@ -1322,29 +1352,12 @@ class DocumentService:
 
         await self.db_ops.execute_with_transaction(_confirm_documents_atomically)
 
-        # Trigger index reconciliation
-        _trigger_index_reconciliation()
-
-        graph_revision = None
         if confirmed_count > 0:
-            try:
-                graph_revision = await mirofish_graph_service.prepare_graph_build(user_id, collection_id)
-                if graph_revision is not None:
-                    from config.celery_tasks import mirofish_collection_graph_task
+            await self._queue_mirofish_graph_build(user_id, collection_id)
 
-                    mirofish_collection_graph_task.apply_async(
-                        args=(collection_id, graph_revision),
-                        countdown=MIROFISH_GRAPH_QUEUE_DELAY_SECONDS,
-                    )
-            except Exception as exc:
-                logger.error(
-                    "Failed to queue MiroFish graph build for collection %s: %s",
-                    collection_id,
-                    exc,
-                    exc_info=True,
-                )
-                if graph_revision is not None:
-                    mirofish_graph_service.handle_build_failure(collection_id, graph_revision, str(exc))
+        # Trigger index reconciliation after the collection-level graph task has
+        # been queued.
+        _trigger_index_reconciliation()
 
         return view_models.ConfirmDocumentsResponse(
             confirmed_count=confirmed_count, failed_count=failed_count, failed_documents=failed_documents

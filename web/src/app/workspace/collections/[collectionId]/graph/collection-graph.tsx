@@ -1,4 +1,5 @@
 'use client';
+
 import {
   GraphEdge,
   GraphNode,
@@ -6,12 +7,9 @@ import {
   MergeSuggestionsResponse,
 } from '@/api';
 import { useCollectionContext } from '@/components/providers/collection-provider';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { apiClient } from '@/lib/api/client';
-import { cn } from '@/lib/utils';
-
-import { Badge } from '@/components/ui/badge';
 import {
   Command,
   CommandEmpty,
@@ -25,25 +23,46 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent } from '@/components/ui/tooltip';
+import {
+  createKnowledgeGraphColorScale,
+  getKnowledgeGraphLinkColor,
+  getKnowledgeGraphLinkDirectionalParticleWidth,
+  getKnowledgeGraphLinkWidth,
+  getKnowledgeGraphNodeDisplayName,
+  paintKnowledgeGraphNodePointerArea,
+  renderKnowledgeGraphNode,
+  resolveKnowledgeGraphNodeId,
+} from '@/components/knowledge-graph/force-graph-renderer';
+import { apiClient } from '@/lib/api/client';
+import { cn } from '@/lib/utils';
 import { TooltipTrigger } from '@radix-ui/react-tooltip';
 import Color from 'color';
-import * as d3 from 'd3';
 import _ from 'lodash';
 import {
   Check,
   ChevronDown,
+  Focus,
   LoaderCircle,
   Maximize,
   Minimize,
+  Network,
+  RefreshCw,
+  ScanSearch,
+  Sparkles,
+  Unplug,
 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useTheme } from 'next-themes';
 import dynamic from 'next/dynamic';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { isMirofishCollection } from '../../tools';
-import { CollectionGraphNodeDetail } from './collection-graph-node-detail';
+import {
+  getCollectionGraphStatusCopy,
+  isMirofishCollection,
+} from '../../tools';
+import { CollectionGraphInspector } from './collection-graph-inspector';
 import { CollectionGraphNodeMerge } from './collection-graph-node-merge';
 
 const ForceGraph2D = dynamic(
@@ -53,83 +72,80 @@ const ForceGraph2D = dynamic(
   },
 );
 
+type SelectedElement =
+  | { type: 'node'; node: GraphNode }
+  | { type: 'edge'; edge: GraphEdge }
+  | null;
+
+const getNodeDisplayName = getKnowledgeGraphNodeDisplayName;
+
 export const CollectionGraph = ({
   marketplace = false,
 }: {
   marketplace: boolean;
 }) => {
   const params = useParams();
+  const locale = useLocale();
+  const rawPageGraph = useTranslations('page_graph');
   const { collection } = useCollectionContext();
-  const [fullscreen, setFullscreen] = useState<boolean>(false);
   const { resolvedTheme } = useTheme();
-  const page_graph = useTranslations('page_graph');
-  const pageGraphMessages = page_graph as typeof page_graph & {
+  const pageGraphMessages = rawPageGraph as typeof rawPageGraph & {
     has: (key: string) => boolean;
   };
+  const pageGraph = useCallback(
+    (key: string, values?: Record<string, string | number>) =>
+      rawPageGraph(key as never, values as never),
+    [rawPageGraph],
+  );
+  const hasPageGraphKey = useCallback(
+    (key: string) => pageGraphMessages.has(key as never),
+    [pageGraphMessages],
+  );
   const isMirofish = isMirofishCollection(collection.config);
+  const graphStatusCopy = getCollectionGraphStatusCopy(collection.config, locale);
 
-  const containerRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const graphRef = useRef<any>(null);
-  const [loading, setLoading] = useState<boolean>(false);
+
+  const [fullscreen, setFullscreen] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [graphData, setGraphData] = useState<{
     nodes: GraphNode[];
     links: GraphEdge[];
   }>();
   const [mergeSuggestion, setMergeSuggestion] =
     useState<MergeSuggestionsResponse>();
-  const [mergeSuggestionOpen, setMergeSuggestionOpen] =
-    useState<boolean>(false);
-
+  const [mergeSuggestionOpen, setMergeSuggestionOpen] = useState(false);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-
-  const [allEntities, setAllEntities] = useState<{
-    [key in string]: GraphNode[];
-  }>({});
   const [activeEntities, setActiveEntities] = useState<string[]>([]);
-
-  const [highlightNodes, setHighlightNodes] = useState(new Set());
-  const [highlightLinks, setHighlightLinks] = useState(new Set());
-  const [hoverNode, setHoverNode] = useState<GraphNode>();
-  const [activeNode, setActiveNode] = useState<GraphNode>();
-  const color = useMemo(() => d3.scaleOrdinal(d3.schemeCategory10), []);
-
-  const { NODE_MIN, NODE_MAX } = useMemo(
+  const [selected, setSelected] = useState<SelectedElement>(null);
+  const [highlightNodes, setHighlightNodes] = useState<Set<GraphNode>>(new Set());
+  const [highlightLinks, setHighlightLinks] = useState<Set<GraphEdge>>(new Set());
+  const [hoverNodeId, setHoverNodeId] = useState<string>();
+  const color = useMemo(() => createKnowledgeGraphColorScale(), []);
+  const { NODE_MIN, NODE_MAX, NODE_FONT_MIN, NODE_FONT_MAX } = useMemo(
     () => ({
-      NODE_MIN: 7,
-      NODE_MAX: 24,
-      LINK_MIN: 18,
-      LINK_MAX: 36,
+      NODE_MIN: 10,
+      NODE_MAX: 30,
+      NODE_FONT_MIN: 7,
+      NODE_FONT_MAX: 13,
     }),
     [],
   );
 
-  const getNodeDisplayName = useCallback((node?: Partial<GraphNode> | null) => {
-    if (!node) {
-      return '';
-    }
-    return String(node.properties?.entity_name || node.id || '');
-  }, []);
-
   const getGraphData = useCallback(async () => {
-    if (typeof params.collectionId !== 'string') return;
+    if (typeof params.collectionId !== 'string') {
+      return;
+    }
+
     setLoading(true);
 
-    let data: KnowledgeGraph;
+    try {
+      let data: KnowledgeGraph;
 
-    if (!marketplace) {
-      const res = await apiClient.graphApi.collectionsCollectionIdGraphsGet(
-        {
-          collectionId: params.collectionId,
-        },
-        {
-          timeout: 1000 * 20,
-        },
-      );
-      data = res.data;
-    } else {
-      const res =
-        await apiClient.defaultApi.marketplaceCollectionsCollectionIdGraphGet(
+      if (!marketplace) {
+        const res = await apiClient.graphApi.collectionsCollectionIdGraphsGet(
           {
             collectionId: params.collectionId,
           },
@@ -137,36 +153,64 @@ export const CollectionGraph = ({
             timeout: 1000 * 20,
           },
         );
-      data = res.data as KnowledgeGraph;
+        data = res.data;
+      } else {
+        const res =
+          await apiClient.defaultApi.marketplaceCollectionsCollectionIdGraphGet(
+            {
+              collectionId: params.collectionId,
+            },
+            {
+              timeout: 1000 * 20,
+            },
+          );
+        data = res.data as KnowledgeGraph;
+      }
+
+      const inboundCounts = new Map<string, number>();
+      const outboundCounts = new Map<string, number>();
+
+      (data.edges || []).forEach((edge) => {
+        inboundCounts.set(
+          edge.target,
+          (inboundCounts.get(edge.target) || 0) + 1,
+        );
+        outboundCounts.set(
+          edge.source,
+          (outboundCounts.get(edge.source) || 0) + 1,
+        );
+      });
+
+      const nodes =
+        data.nodes?.map((node) => {
+          const inboundCount = inboundCounts.get(node.id) || 0;
+          const outboundCount = outboundCounts.get(node.id) || 0;
+          const degreeCount = inboundCount + outboundCount;
+
+          return {
+            ...node,
+            properties: {
+              ...node.properties,
+              inbound_count: inboundCount,
+              outbound_count: outboundCount,
+              degree_count: degreeCount,
+            },
+            value: Math.max(inboundCount, outboundCount, 10),
+          };
+        }) || [];
+
+      setGraphData({ nodes, links: data.edges || [] });
+    } finally {
+      setLoading(false);
     }
-
-    const nodes =
-      data.nodes?.map((n) => {
-        const targetCount = data.edges.filter(
-          (edg) => edg.target === n.id,
-        ).length;
-        const sourceCount = data.edges.filter(
-          (edg) => edg.source === n.id,
-        ).length;
-        return {
-          ...n,
-          value: Math.max(targetCount, sourceCount, NODE_MIN),
-        };
-      }) || [];
-    const links = data.edges || [];
-
-    setGraphData({ nodes, links });
-
-    setAllEntities(_.groupBy(nodes, (n) => n.properties.entity_type));
-
-    setLoading(false);
-  }, [NODE_MIN, marketplace, params.collectionId]);
+  }, [marketplace, params.collectionId]);
 
   const getMergeSuggestions = useCallback(async () => {
     if (typeof params.collectionId !== 'string' || marketplace || isMirofish) {
       setMergeSuggestion(undefined);
       return;
     }
+
     const suggestionRes =
       await apiClient.graphApi.collectionsCollectionIdGraphsMergeSuggestionsPost(
         {
@@ -179,151 +223,323 @@ export const CollectionGraph = ({
     setMergeSuggestion(suggestionRes.data);
   }, [isMirofish, marketplace, params.collectionId]);
 
-  const handleCloseDetail = useCallback(() => {
-    setActiveNode(undefined);
-    setHoverNode(undefined);
-    highlightNodes.clear();
-    highlightLinks.clear();
-  }, [highlightLinks, highlightNodes]);
+  const allEntities = useMemo(
+    () => _.groupBy(graphData?.nodes || [], (node) => node.properties.entity_type),
+    [graphData?.nodes],
+  );
+  const nodeById = useMemo(
+    () => new Map((graphData?.nodes || []).map((node) => [node.id, node])),
+    [graphData?.nodes],
+  );
+  const linksByNode = useMemo(() => {
+    const adjacency = new Map<string, GraphEdge[]>();
+
+    (graphData?.links || []).forEach((link) => {
+      const sourceId = resolveKnowledgeGraphNodeId(link.source);
+      const targetId = resolveKnowledgeGraphNodeId(link.target);
+
+      if (sourceId) {
+        adjacency.set(sourceId, [...(adjacency.get(sourceId) || []), link]);
+      }
+      if (targetId) {
+        adjacency.set(targetId, [...(adjacency.get(targetId) || []), link]);
+      }
+    });
+
+    return adjacency;
+  }, [graphData?.links]);
+
+  useEffect(() => {
+    if (!graphData?.nodes?.length) {
+      setActiveEntities([]);
+      return;
+    }
+
+    setActiveEntities((previous) => {
+      if (!previous.length) {
+        return Object.keys(allEntities);
+      }
+
+      const valid = previous.filter((item) => item in allEntities);
+      return valid.length ? valid : Object.keys(allEntities);
+    });
+  }, [allEntities, graphData?.nodes]);
+
+  useEffect(() => {
+    if (!selected || !graphData) {
+      return;
+    }
+
+    if (selected.type === 'node') {
+      const nextNode = graphData.nodes.find((node) => node.id === selected.node.id);
+      if (!nextNode) {
+        setSelected(null);
+        return;
+      }
+      if (nextNode !== selected.node) {
+        setSelected({ type: 'node', node: nextNode });
+      }
+      return;
+    }
+
+    const nextEdge = graphData.links.find((edge) => edge.id === selected.edge.id);
+    if (!nextEdge) {
+      setSelected(null);
+      return;
+    }
+    if (nextEdge !== selected.edge) {
+      setSelected({ type: 'edge', edge: nextEdge });
+    }
+  }, [graphData, selected]);
+
+  const selectedNode =
+    selected?.type === 'node'
+      ? selected.node
+      : undefined;
+  const selectedEdge =
+    selected?.type === 'edge'
+      ? selected.edge
+      : undefined;
+
+  const selectedEdgeNodes = useMemo(() => {
+    if (!selectedEdge) {
+      return {};
+    }
+
+    const sourceId = resolveKnowledgeGraphNodeId(selectedEdge.source);
+    const targetId = resolveKnowledgeGraphNodeId(selectedEdge.target);
+
+    return {
+      sourceNode: sourceId ? nodeById.get(sourceId) : undefined,
+      targetNode: targetId ? nodeById.get(targetId) : undefined,
+    };
+  }, [nodeById, selectedEdge]);
+
+  const visibleNodeIds = useMemo(
+    () =>
+      new Set(
+        (graphData?.nodes || [])
+          .filter((node) => {
+            const entityType = node.properties?.entity_type;
+            return !entityType || activeEntities.includes(entityType);
+          })
+          .map((node) => node.id),
+      ),
+    [activeEntities, graphData?.nodes],
+  );
+
+  const visibleLinksCount = useMemo(
+    () =>
+      (graphData?.links || []).filter((link) => {
+        const sourceId = resolveKnowledgeGraphNodeId(link.source);
+        const targetId = resolveKnowledgeGraphNodeId(link.target);
+        return (
+          (sourceId ? visibleNodeIds.has(sourceId) : false) &&
+          (targetId ? visibleNodeIds.has(targetId) : false)
+        );
+      }).length,
+    [graphData?.links, visibleNodeIds],
+  );
+
+  useEffect(() => {
+    if (!selected) {
+      return;
+    }
+
+    if (selected.type === 'node') {
+      const entityType = selected.node.properties?.entity_type;
+      if (entityType && !activeEntities.includes(entityType)) {
+        setSelected(null);
+      }
+      return;
+    }
+
+    const sourceType = selectedEdgeNodes.sourceNode?.properties?.entity_type;
+    const targetType = selectedEdgeNodes.targetNode?.properties?.entity_type;
+    const hidesSource = sourceType && !activeEntities.includes(sourceType);
+    const hidesTarget = targetType && !activeEntities.includes(targetType);
+
+    if (hidesSource || hidesTarget) {
+      setSelected(null);
+    }
+  }, [activeEntities, selected, selectedEdgeNodes.sourceNode, selectedEdgeNodes.targetNode]);
+
+  const selectedSummary = useMemo(() => {
+    if (!selected) {
+      return pageGraph('selection_none');
+    }
+
+    if (selected.type === 'node') {
+      return getKnowledgeGraphNodeDisplayName(selected.node);
+    }
+
+    const sourceName = getKnowledgeGraphNodeDisplayName(selectedEdgeNodes.sourceNode);
+    const targetName = getKnowledgeGraphNodeDisplayName(selectedEdgeNodes.targetNode);
+    return `${sourceName} → ${targetName}`;
+  }, [pageGraph, selected, selectedEdgeNodes.sourceNode, selectedEdgeNodes.targetNode]);
+
+  const overviewCards = useMemo(
+    () => [
+      {
+        icon: Network,
+        label: pageGraph('discover_nodes'),
+        value: graphData?.nodes.length || 0,
+      },
+      {
+        icon: Focus,
+        label: pageGraph('discover_edges'),
+        value: graphData?.links.length || 0,
+      },
+      {
+        icon: ScanSearch,
+        label: pageGraph('discover_types'),
+        value: Object.keys(allEntities).length,
+      },
+      {
+        icon: Sparkles,
+        label: pageGraph('discover_visible_edges'),
+        value: visibleLinksCount,
+      },
+    ],
+    [allEntities, graphData?.links.length, graphData?.nodes.length, pageGraph, visibleLinksCount],
+  );
 
   const handleResizeContainer = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const width = container.offsetWidth || 0;
-    const height = container.offsetHeight || 0;
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return;
+    }
     setDimensions({
-      width: width - 2,
-      height: height - 2,
+      width: Math.max(viewport.offsetWidth - 2, 0),
+      height: Math.max(viewport.offsetHeight - 2, 0),
     });
   }, []);
 
   useEffect(() => {
-    if (activeEntities.length) return;
-    setActiveEntities(Object.keys(allEntities));
-  }, [activeEntities.length, allEntities]);
+    handleResizeContainer();
+  }, [handleResizeContainer]);
 
-  useEffect(() => handleResizeContainer(), [handleResizeContainer]);
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return;
+    }
+
     handleResizeContainer();
     window.addEventListener('resize', handleResizeContainer);
     return () => window.removeEventListener('resize', handleResizeContainer);
-  }, [handleResizeContainer, fullscreen]);
+  }, [fullscreen, handleResizeContainer]);
 
   useEffect(() => {
-    highlightNodes.clear();
-    highlightLinks.clear();
-
-    if (activeNode) {
-      const nodeLinks = graphData?.links.filter((link) => {
-        return (
-          // @ts-expect-error link.source.id link.target.id
-          link.source.id === activeNode.id || link.target.id === activeNode.id
-        );
-      });
-      nodeLinks?.forEach((link: GraphEdge) => {
-        highlightLinks.add(link);
-        highlightNodes.add(link.source);
-        highlightNodes.add(link.target);
-      });
-      highlightNodes.add(activeNode);
-      // @ts-expect-error node.x node.y
-      graphRef.current?.centerAt(activeNode.x, activeNode.y, 400);
-      graphRef.current?.zoom(3, 600);
-    } else {
-      graphRef.current?.centerAt(0, 0, 400);
-      graphRef.current?.zoom(1.5, 600);
-    }
-    setHighlightNodes(highlightNodes);
-    setHighlightLinks(highlightLinks);
-  }, [activeNode, graphData?.links, highlightLinks, highlightNodes]);
-
-  useEffect(() => {
-    getGraphData();
-    getMergeSuggestions();
-    // init the graph config
-    // graphRef.current
-    //   ?.d3Force(
-    //     'link',
-    //     d3.forceLink().distance((link) => {
-    //       console.log(link)
-    //       return Math.min(
-    //         Math.max(link.source.value, link.target.value, LINK_MIN),
-    //         LINK_MAX,
-    //       );
-    //     }),
-    //   )
-    //   .d3Force('collision', d3.forceCollide().radius(NODE_MIN))
-    //   .d3Force('charge', d3.forceManyBody().strength(-40))
-    //   .d3Force('x', d3.forceX())
-    //   .d3Force('y', d3.forceY());
+    void getGraphData();
+    void getMergeSuggestions();
   }, [getGraphData, getMergeSuggestions]);
+
+  useEffect(() => {
+    if (!selected || !graphData) {
+      return;
+    }
+
+    if (selected.type === 'node') {
+      const latestNode = graphData.nodes.find((node) => node.id === selected.node.id);
+      if (latestNode && latestNode !== selected.node) {
+        setSelected({ type: 'node', node: latestNode });
+      }
+      return;
+    }
+
+    const latestEdge = graphData.links.find((edge) => edge.id === selected.edge.id);
+    if (latestEdge && latestEdge !== selected.edge) {
+      setSelected({ type: 'edge', edge: latestEdge });
+    }
+  }, [graphData, selected]);
+
+  useEffect(() => {
+    const nextHighlightNodes = new Set<GraphNode>();
+    const nextHighlightLinks = new Set<GraphEdge>();
+
+    if (selectedNode) {
+      const nodeLinks = linksByNode.get(selectedNode.id) || [];
+
+      nodeLinks.forEach((link) => {
+        nextHighlightLinks.add(link);
+        const sourceId = resolveKnowledgeGraphNodeId(link.source);
+        const targetId = resolveKnowledgeGraphNodeId(link.target);
+        const sourceNode = sourceId ? nodeById.get(sourceId) : undefined;
+        const targetNode = targetId ? nodeById.get(targetId) : undefined;
+        if (sourceNode) {
+          nextHighlightNodes.add(sourceNode);
+        }
+        if (targetNode) {
+          nextHighlightNodes.add(targetNode);
+        }
+      });
+
+      nextHighlightNodes.add(selectedNode);
+      // @ts-expect-error x y are attached by the force-graph runtime
+      graphRef.current?.centerAt(selectedNode.x, selectedNode.y, 500);
+      graphRef.current?.zoom(2.4, 650);
+    } else if (selectedEdge) {
+      nextHighlightLinks.add(selectedEdge);
+      if (selectedEdgeNodes.sourceNode) {
+        nextHighlightNodes.add(selectedEdgeNodes.sourceNode);
+      }
+      if (selectedEdgeNodes.targetNode) {
+        nextHighlightNodes.add(selectedEdgeNodes.targetNode);
+      }
+
+      const source = selectedEdgeNodes.sourceNode;
+      const target = selectedEdgeNodes.targetNode;
+      if (source && target) {
+        // @ts-expect-error x y are attached by the force-graph runtime
+        graphRef.current?.centerAt((source.x + target.x) / 2, (source.y + target.y) / 2, 500);
+        graphRef.current?.zoom(2, 650);
+      }
+    } else {
+      graphRef.current?.centerAt(0, 0, 500);
+      graphRef.current?.zoom(1.35, 650);
+    }
+
+    setHighlightNodes(nextHighlightNodes);
+    setHighlightLinks(nextHighlightLinks);
+  }, [linksByNode, nodeById, selectedEdge, selectedEdgeNodes.sourceNode, selectedEdgeNodes.targetNode, selectedNode]);
+
+  const clearSelection = useCallback(() => {
+    setSelected(null);
+    setHoverNodeId(undefined);
+    setHighlightNodes(new Set());
+    setHighlightLinks(new Set());
+  }, []);
 
   return (
     <div
-      className={cn('top-0 right-0 bottom-0 left-0 flex flex-1 flex-col', {
+      className={cn('mt-4 flex min-h-0 flex-1 flex-col gap-4', {
         fixed: fullscreen,
-        'bg-background': fullscreen,
-        'z-49': fullscreen,
+        'inset-0 z-49 bg-background px-4 py-4': fullscreen,
       })}
     >
-      <div
-        className={cn('mb-2 flex flex-row items-center justify-between gap-2', {
-          'px-2': fullscreen,
-          'pt-2': fullscreen,
-        })}
-      >
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className="w-40 justify-between">
-              {page_graph('node_search')}
-              <ChevronDown />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[200px] p-0" align="start">
-            <Command>
-              <CommandInput placeholder="Search node..." className="h-9" />
-              <CommandList className="max-h-60">
-                <CommandEmpty>No node found.</CommandEmpty>
-                <CommandGroup>
-                  {_.map(graphData?.nodes, (node, key) => {
-                    const isActive = activeNode?.id === node.id;
-                    return (
-                      <CommandItem
-                        key={key}
-                        className={cn('capitalize')}
-                        value={getNodeDisplayName(node)}
-                        onSelect={() => {
-                          setActiveNode(isActive ? undefined : node);
-                        }}
-                      >
-                        <div className="truncate">
-                          {getNodeDisplayName(node)}
-                        </div>
-                        <Check
-                          className={cn(
-                            'ml-auto',
-                            isActive ? 'opacity-100' : 'opacity-0',
-                          )}
-                        />
-                      </CommandItem>
-                    );
-                  })}
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
-        <div className="flex flex-row items-center gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="text-[11px] font-semibold tracking-[0.24em] uppercase text-foreground/70">
+            {pageGraph('workbench_eyebrow')}
+          </div>
+          <div className="text-2xl font-semibold leading-tight">
+            {pageGraph('workbench_title')}
+          </div>
+          <div className="text-muted-foreground max-w-3xl text-sm leading-6">
+            {pageGraph('workbench_description')}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
           {!marketplace &&
             !isMirofish &&
             !_.isEmpty(mergeSuggestion?.suggestions) && (
               <Tooltip>
-                <TooltipTrigger>
+                <TooltipTrigger asChild>
                   <Badge
                     variant="destructive"
-                    className="mr-4 h-5 min-w-5 cursor-pointer rounded-full px-1 font-mono tabular-nums"
+                    className="h-8 cursor-pointer rounded-full px-3 font-mono tabular-nums"
                     onClick={() => setMergeSuggestionOpen(true)}
                   >
                     {mergeSuggestion?.suggestions?.length &&
@@ -333,7 +549,7 @@ export const CollectionGraph = ({
                   </Badge>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {page_graph('merge_infomation', {
+                  {pageGraph('merge_infomation', {
                     count: String(mergeSuggestion?.pending_count || 0),
                   })}
                 </TooltipContent>
@@ -341,255 +557,533 @@ export const CollectionGraph = ({
             )}
 
           <Button
-            size="icon"
             variant="outline"
-            className="cursor-pointer"
-            onClick={() => {
-              getGraphData();
-              if (!isMirofish) {
-                getMergeSuggestions();
-              }
-            }}
+            onClick={() => clearSelection()}
+            disabled={!selected}
           >
-            <LoaderCircle className={loading ? 'animate-spin' : ''} />
+            <Unplug />
+            {pageGraph('clear_selection')}
           </Button>
 
           <Button
-            size="icon"
             variant="outline"
-            className="cursor-pointer"
             onClick={() => {
-              setFullscreen(!fullscreen);
+              void getGraphData();
+              if (!isMirofish) {
+                void getMergeSuggestions();
+              }
             }}
           >
+            {loading ? <LoaderCircle className="animate-spin" /> : <RefreshCw />}
+            {pageGraph('refresh')}
+          </Button>
+
+          <Button
+            variant="outline"
+            onClick={() => setFullscreen((current) => !current)}
+          >
             {fullscreen ? <Minimize /> : <Maximize />}
+            {fullscreen
+              ? pageGraph('fullscreen_exit')
+              : pageGraph('fullscreen_enter')}
           </Button>
         </div>
       </div>
 
-      <Card
-        ref={containerRef}
-        className="bg-card/0 relative flex flex-1 gap-0 py-0"
-      >
-        {graphData === undefined && (
-          <div className="absolute top-4/12 left-6/12">
-            <div className="flex flex-row gap-2 py-2">
-              <div className="bg-muted-foreground animate-caret-blink size-2 rounded-full delay-0"></div>
-              <div className="bg-muted-foreground animate-caret-blink size-2 rounded-full delay-200"></div>
-              <div className="bg-muted-foreground animate-caret-blink size-2 rounded-full delay-400"></div>
+      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[240px_minmax(0,1fr)_320px] 2xl:grid-cols-[280px_minmax(0,1fr)_380px]">
+        <Card className="min-h-[320px] rounded-[28px] border shadow-sm">
+          <div className="space-y-5 p-5">
+            <div className="space-y-2">
+              <div className="text-[11px] font-semibold tracking-[0.24em] uppercase text-foreground/70">
+                {pageGraph('discover_title')}
+              </div>
+              <div className="text-xl font-semibold">
+                {pageGraph('discover_title')}
+              </div>
+              <div className="text-muted-foreground text-sm leading-6">
+                {pageGraph('discover_description')}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {overviewCards.map(({ icon: Icon, label, value }) => (
+                <div
+                  key={label}
+                  className="bg-muted/35 rounded-2xl border p-3"
+                >
+                  <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-foreground/70">
+                    <Icon className="size-3.5" />
+                    {label}
+                  </div>
+                  <div className="mt-2 text-2xl font-semibold tabular-nums">
+                    {value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-foreground/70">
+                {pageGraph('node_search')}
+              </div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-between">
+                    {pageGraph('node_search')}
+                    <ChevronDown />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[260px] p-0" align="start">
+                  <Command>
+                    <CommandInput
+                      placeholder={pageGraph('node_search')}
+                      className="h-9"
+                    />
+                    <CommandList className="max-h-60">
+                      <CommandEmpty>
+                        {pageGraph('no_nodes_found')}
+                      </CommandEmpty>
+                      <CommandGroup>
+                        {_.map(graphData?.nodes, (node, key) => {
+                          const isActive =
+                            selected?.type === 'node' &&
+                            selected.node.id === node.id;
+                          return (
+                            <CommandItem
+                              key={key}
+                              className="capitalize"
+                              value={getKnowledgeGraphNodeDisplayName(node)}
+                              onSelect={() => {
+                                const entityType = node.properties?.entity_type;
+                                if (entityType) {
+                                  setActiveEntities((current) =>
+                                    current.includes(entityType)
+                                      ? current
+                                      : _.uniq(current.concat(entityType)),
+                                  );
+                                }
+                                setSelected(
+                                  isActive ? null : { type: 'node', node },
+                                );
+                              }}
+                            >
+                              <div className="truncate">
+                                {getKnowledgeGraphNodeDisplayName(node)}
+                              </div>
+                              <Check
+                                className={cn(
+                                  'ml-auto',
+                                  isActive ? 'opacity-100' : 'opacity-0',
+                                )}
+                              />
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-foreground/70">
+                {pageGraph('entity_types_title')}
+              </div>
+              <ScrollArea className="max-h-64">
+                <div className="flex flex-wrap gap-2 pr-3">
+                  {_.map(allEntities, (items, key) => {
+                    const isActive = activeEntities.includes(key);
+                    const titleKey = `entity_${key}`;
+                    const title = hasPageGraphKey(titleKey)
+                      ? pageGraph(titleKey)
+                      : key;
+
+                    return (
+                      <Badge
+                        key={key}
+                        className={cn(
+                          'cursor-pointer border-transparent capitalize transition-opacity',
+                          !isActive && 'opacity-55',
+                        )}
+                        style={{
+                          backgroundColor: color(key),
+                        }}
+                        onClick={() =>
+                          setActiveEntities((current) => {
+                            if (isActive) {
+                              return current.filter((item) => item !== key);
+                            }
+                            return _.uniq(current.concat(key));
+                          })
+                        }
+                      >
+                        {title} ({items.length})
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
+            </div>
+
+            <div className="bg-muted/25 rounded-2xl border p-4">
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-foreground/70">
+                {pageGraph('current_context_title')}
+              </div>
+              <div className="mt-2 text-sm font-medium">{selectedSummary}</div>
+              <div className="text-muted-foreground mt-2 text-sm leading-6">
+                {graphStatusCopy?.description ||
+                  pageGraph('graph_ready_prompt')}
+              </div>
             </div>
           </div>
-        )}
+        </Card>
 
-        {graphData !== undefined && _.isEmpty(graphData?.nodes) && (
-          <div className="absolute top-4/12 w-full">
-            <div className="text-muted-foreground text-center">
-              {page_graph('no_nodes_found')}
+        <Card className="min-h-[560px] rounded-[28px] border shadow-sm">
+          <div className="flex h-full min-h-[560px] flex-col">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
+              <div className="space-y-1">
+                <div className="text-[11px] font-semibold tracking-[0.24em] uppercase text-foreground/70">
+                  {pageGraph('canvas_title')}
+                </div>
+                <div className="text-lg font-semibold">
+                  {pageGraph('canvas_title')}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {graphStatusCopy ? (
+                  <Badge variant={graphStatusCopy.variant}>
+                    {graphStatusCopy.badge}
+                  </Badge>
+                ) : null}
+                <Badge variant="secondary">
+                  {selected
+                    ? selected.type === 'node'
+                      ? pageGraph('selection_node')
+                      : pageGraph('selection_edge')
+                    : pageGraph('selection_browse')}
+                </Badge>
+              </div>
             </div>
-          </div>
-        )}
 
-        <div className="bg-background absolute top-0 right-0 left-0 z-10 flex flex-row flex-wrap gap-1 rounded-xl p-2">
-          {_.map(allEntities, (item, key) => {
-            const isActive = activeEntities.includes(key);
-            const titleKey = `entity_${key}`;
-            const title = pageGraphMessages.has(titleKey)
-              ? page_graph(titleKey as never)
-              : key;
-            return (
-              <Badge
-                key={key}
-                className={cn(
-                  'cursor-pointer capitalize',
-                  isActive ? '' : 'border-transparent',
-                )}
-                style={{
-                  backgroundColor: color(key),
-                  opacity: isActive ? 1 : 0.7,
-                }}
-                onClick={() =>
-                  setActiveEntities((items) => {
-                    if (isActive) {
-                      return _.reject(items, (item) => item === key);
-                    } else {
-                      return _.uniq(items.concat(key));
-                    }
-                  })
+            <div ref={viewportRef} className="relative min-h-0 flex-1">
+              {!graphData && (
+                <div className="absolute inset-0 grid place-items-center">
+                  <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
+                    <LoaderCircle className="size-5 animate-spin" />
+                    {pageGraph('loading_graph')}
+                  </div>
+                </div>
+              )}
+
+              {graphData && _.isEmpty(graphData.nodes) && (
+                <div className="absolute inset-0 grid place-items-center px-8 text-center">
+                  <div className="space-y-3">
+                    <div className="text-lg font-semibold">
+                      {pageGraph('no_nodes_found')}
+                    </div>
+                    <div className="text-muted-foreground text-sm leading-6">
+                      {pageGraph('empty_graph_description')}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <ForceGraph2D
+                graphData={graphData}
+                width={dimensions.width}
+                height={dimensions.height}
+                ref={graphRef}
+                nodeLabel={(node) =>
+                  getKnowledgeGraphNodeDisplayName(node as GraphNode)
                 }
-              >
-                {title} ({item.length})
-              </Badge>
-            );
-          })}
-        </div>
-
-        <ForceGraph2D
-          graphData={graphData}
-          width={dimensions.width}
-          height={dimensions.height}
-          nodeLabel={(nod) => getNodeDisplayName(nod as GraphNode)}
-          ref={graphRef}
-          nodeVisibility={(node) => {
-            return (
-              !node.properties.entity_type ||
-              activeEntities.includes(node.properties.entity_type)
-            );
-          }}
-          onNodeClick={(node) => {
-            if (activeNode?.id === node.id) {
-              handleCloseDetail();
-              return;
-            }
-            setActiveNode(node as GraphNode);
-          }}
-          onNodeHover={(node) => {
-            if (activeNode) return;
-            highlightNodes.clear();
-            highlightLinks.clear();
-            if (node) {
-              const nodeLinks = graphData?.links.filter((link) => {
-                //@ts-expect-error link.source.id link.target.id
-                return link.source.id === node.id || link.target.id === node.id;
-              });
-              nodeLinks?.forEach((link: GraphEdge) => {
-                highlightLinks.add(link);
-              });
-            }
-            setHoverNode(
-              node
-                ? {
-                    ...node,
-                    id: String(node.id),
-                    labels: [],
-                    properties: {},
+                linkLabel={(link) =>
+                  String(
+                    (link as GraphEdge).type ||
+                      (link as GraphEdge).properties?.description ||
+                      (link as GraphEdge).id,
+                  )
+                }
+                nodeVisibility={(node) => {
+                  const entityType = node.properties?.entity_type;
+                  return !entityType || activeEntities.includes(entityType);
+                }}
+                linkVisibility={(link) => {
+                  const sourceId = resolveKnowledgeGraphNodeId(
+                    link.source as string | GraphNode,
+                  );
+                  const targetId = resolveKnowledgeGraphNodeId(
+                    link.target as string | GraphNode,
+                  );
+                  return (
+                    (sourceId ? visibleNodeIds.has(sourceId) : false) &&
+                    (targetId ? visibleNodeIds.has(targetId) : false)
+                  );
+                }}
+                onNodeClick={(node) => {
+                  if (selected?.type === 'node' && selected.node.id === node.id) {
+                    clearSelection();
+                    return;
                   }
-                : undefined,
+                  const nextNode = node as GraphNode;
+                  const entityType = nextNode.properties?.entity_type;
+                  if (entityType) {
+                    setActiveEntities((current) =>
+                      current.includes(entityType)
+                        ? current
+                        : _.uniq(current.concat(entityType)),
+                    );
+                  }
+                  setHoverNodeId(undefined);
+                  setSelected({ type: 'node', node: nextNode });
+                }}
+                onLinkClick={(link) => {
+                  const nextLink = link as GraphEdge;
+                  if (selected?.type === 'edge' && selected.edge.id === nextLink.id) {
+                    clearSelection();
+                    return;
+                  }
+                  const sourceId = resolveKnowledgeGraphNodeId(nextLink.source);
+                  const targetId = resolveKnowledgeGraphNodeId(nextLink.target);
+                  const sourceType = sourceId
+                    ? nodeById.get(sourceId)?.properties?.entity_type
+                    : undefined;
+                  const targetType = targetId
+                    ? nodeById.get(targetId)?.properties?.entity_type
+                    : undefined;
+                  const nextTypes = [sourceType, targetType].filter(Boolean) as string[];
+                  if (nextTypes.length) {
+                    setActiveEntities((current) => _.uniq(current.concat(nextTypes)));
+                  }
+                  setHoverNodeId(undefined);
+                  setSelected({ type: 'edge', edge: nextLink });
+                }}
+                onNodeHover={(node) => {
+                  if (selected) {
+                    return;
+                  }
+
+                  const nextHighlightNodes = new Set<GraphNode>();
+                  const nextHighlightLinks = new Set<GraphEdge>();
+
+                  if (node) {
+                    const hoveredNodeId = String(node.id);
+                    setHoverNodeId(hoveredNodeId);
+
+                    const hoveredNode = nodeById.get(hoveredNodeId);
+                    if (hoveredNode) {
+                      nextHighlightNodes.add(hoveredNode);
+                    }
+
+                    (linksByNode.get(hoveredNodeId) || []).forEach((link) => {
+                      const sourceId = resolveKnowledgeGraphNodeId(link.source);
+                      const targetId = resolveKnowledgeGraphNodeId(link.target);
+                      nextHighlightLinks.add(link);
+                      if (sourceId && nodeById.get(sourceId)) {
+                        nextHighlightNodes.add(nodeById.get(sourceId)!);
+                      }
+                      if (targetId && nodeById.get(targetId)) {
+                        nextHighlightNodes.add(nodeById.get(targetId)!);
+                      }
+                    });
+                  } else {
+                    setHoverNodeId(undefined);
+                  }
+
+                  setHighlightNodes(nextHighlightNodes);
+                  setHighlightLinks(nextHighlightLinks);
+                }}
+                onLinkHover={(link) => {
+                  if (selected) {
+                    return;
+                  }
+
+                  const nextHighlightNodes = new Set<GraphNode>();
+                  const nextHighlightLinks = new Set<GraphEdge>();
+                  setHoverNodeId(undefined);
+
+                  if (link) {
+                    const hoveredEdge = link as GraphEdge;
+                    nextHighlightLinks.add(hoveredEdge);
+
+                    const sourceId = resolveKnowledgeGraphNodeId(
+                      hoveredEdge.source,
+                    );
+                    const targetId = resolveKnowledgeGraphNodeId(
+                      hoveredEdge.target,
+                    );
+                    const sourceNode = sourceId ? nodeById.get(sourceId) : undefined;
+                    const targetNode = targetId ? nodeById.get(targetId) : undefined;
+
+                    if (sourceNode) {
+                      nextHighlightNodes.add(sourceNode);
+                    }
+                    if (targetNode) {
+                      nextHighlightNodes.add(targetNode);
+                    }
+                  }
+
+                  setHighlightNodes(nextHighlightNodes);
+                  setHighlightLinks(nextHighlightLinks);
+                }}
+                nodeCanvasObject={(node, ctx) => {
+                  renderKnowledgeGraphNode({
+                    node: node as GraphNode,
+                    ctx,
+                    colorScale: color,
+                    resolvedTheme,
+                    isNodeHighlighted: (currentNode) =>
+                      highlightNodes.size === 0 ||
+                      highlightNodes.has(currentNode as GraphNode),
+                    isNodeHovered: (currentNode) =>
+                      hoverNodeId === String(currentNode.id),
+                  });
+                  return;
+                  const x = node.x || 0;
+                  const y = node.y || 0;
+                  const nodeSize = Math.min(node.value || NODE_MIN, NODE_MAX);
+                  const isHovered = hoverNodeId === String(node.id);
+                  const size = isHovered ? nodeSize + 1.25 : nodeSize;
+
+                  ctx.beginPath();
+                  ctx.arc(x, y, size, 0, 2 * Math.PI, false);
+
+                  const tone = color(node.properties.entity_type || '');
+                  const mutedTone =
+                    resolvedTheme === 'dark'
+                      ? Color(tone).desaturate(0.45).lighten(0.05)
+                      : Color(tone).desaturate(0.55).darken(0.12);
+
+                  ctx.fillStyle =
+                    highlightNodes.size === 0 || highlightNodes.has(node as GraphNode)
+                      ? tone
+                      : mutedTone.string();
+                  ctx.fill();
+
+                  ctx.beginPath();
+                  ctx.arc(x, y, size, 0, 2 * Math.PI, false);
+                  ctx.lineWidth = highlightNodes.has(node as GraphNode) ? 2 : 1;
+                  ctx.strokeStyle =
+                    resolvedTheme === 'dark'
+                      ? highlightNodes.has(node as GraphNode)
+                        ? 'rgba(250, 250, 250, 0.92)'
+                        : 'rgba(24, 24, 27, 0.88)'
+                      : highlightNodes.has(node as GraphNode)
+                        ? 'rgba(24, 24, 27, 0.88)'
+                        : 'rgba(113, 113, 122, 0.72)';
+                  ctx.stroke();
+
+                  const nodeLabel = getNodeDisplayName(node as GraphNode);
+                  let fontSize = Math.max(
+                    NODE_FONT_MIN,
+                    Math.min(NODE_FONT_MAX, Math.floor(size * 0.72)),
+                  );
+                  const offset = 2;
+                  ctx.font = `600 ${fontSize}px Arial`;
+                  let textWidth = ctx.measureText(nodeLabel).width - offset;
+                  const maxLabelWidth = size * 1.55;
+                  let truncatedLabel = nodeLabel;
+                  while (textWidth > maxLabelWidth && truncatedLabel.length > 3) {
+                    truncatedLabel = `${truncatedLabel.slice(0, -2)}…`;
+                    textWidth = ctx.measureText(truncatedLabel).width - offset;
+                  }
+                  while (textWidth > maxLabelWidth && fontSize > NODE_FONT_MIN) {
+                    fontSize -= 1;
+                    ctx.font = `600 ${fontSize}px Arial`;
+                    textWidth = ctx.measureText(truncatedLabel).width - offset;
+                  }
+                  ctx.fillStyle = '#fff';
+                  ctx.fillText(
+                    truncatedLabel,
+                    x - (textWidth + offset) / 2,
+                    y + fontSize / 2.8,
+                  );
+                }}
+                nodePointerAreaPaint={(node, paintColor, ctx) => {
+                  paintKnowledgeGraphNodePointerArea({
+                    node: node as GraphNode,
+                    paintColor,
+                    ctx,
+                  });
+                  return;
+                  const x = node.x || 0;
+                  const y = node.y || 0;
+                  const size = Math.min(node.value || NODE_MIN, NODE_MAX);
+                  ctx.fillStyle = paintColor;
+                  ctx.beginPath();
+                  ctx.arc(x, y, size, 0, 2 * Math.PI, false);
+                  ctx.fill();
+                }}
+                linkColor={(link) => {
+                  return getKnowledgeGraphLinkColor({
+                    link: link as GraphEdge,
+                    resolvedTheme,
+                    isLinkHighlighted: (currentLink) =>
+                      highlightLinks.has(currentLink as GraphEdge),
+                  });
+                  const isActive = highlightLinks.has(link as GraphEdge);
+                  if (resolvedTheme === 'dark') {
+                    return isActive ? '#A3A3A3' : '#3F3F46';
+                  }
+                  return isActive ? '#737373' : '#D4D4D8';
+                }}
+                linkWidth={(link) =>
+                  getKnowledgeGraphLinkWidth(
+                    link as GraphEdge,
+                    (currentLink) =>
+                      highlightLinks.has(currentLink as GraphEdge),
+                  )
+                }
+                linkDirectionalParticleWidth={(link) =>
+                  getKnowledgeGraphLinkDirectionalParticleWidth(
+                    link as GraphEdge,
+                    (currentLink) =>
+                      highlightLinks.has(currentLink as GraphEdge),
+                  )
+                }
+                linkDirectionalParticles={2}
+              />
+            </div>
+          </div>
+        </Card>
+
+        <CollectionGraphInspector
+          selection={selected}
+          graphData={graphData}
+          collectionConfig={collection.config}
+          locale={locale}
+          selectedEdgeNodes={selectedEdgeNodes}
+        />
+      </div>
+
+      {!isMirofish && mergeSuggestion && (
+        <CollectionGraphNodeMerge
+          dataSource={mergeSuggestion}
+          open={mergeSuggestionOpen}
+          onRefresh={getMergeSuggestions}
+          onClose={() => {
+            setSelected(null);
+            setMergeSuggestionOpen(false);
+          }}
+          onSelectNode={(id: string) => {
+            const node = graphData?.nodes.find(
+              (item) => item.id === id || item.properties?.entity_name === id,
             );
-            setHighlightNodes(highlightNodes);
-            setHighlightLinks(highlightLinks);
-          }}
-          onLinkHover={(link) => {
-            if (activeNode) return;
-            highlightNodes.clear();
-            highlightLinks.clear();
-            if (link) {
-              highlightLinks.add(link);
+            if (node) {
+              const entityType = node.properties?.entity_type;
+              if (entityType) {
+                setActiveEntities((current) =>
+                  current.includes(entityType)
+                    ? current
+                    : _.uniq(current.concat(entityType)),
+                );
+              }
+              setSelected({ type: 'node', node });
             }
-            setHighlightNodes(highlightNodes);
-            setHighlightLinks(highlightLinks);
-          }}
-          nodeCanvasObject={(node, ctx) => {
-            const x = node.x || 0;
-            const y = node.y || 0;
-
-            let size = Math.min(node.value, NODE_MAX);
-            if (node === hoverNode) size += 1;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, 2 * Math.PI, false);
-
-            const colorNormal = color(node.properties.entity_type || '');
-            const colorSecondary =
-              resolvedTheme === 'dark'
-                ? Color(colorNormal).grayscale().darken(0.3)
-                : Color(colorNormal).grayscale().lighten(0.6);
-            ctx.fillStyle =
-              highlightNodes.size === 0 || highlightNodes.has(node)
-                ? colorNormal
-                : colorSecondary.string();
-            ctx.fill();
-
-            // node circle
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, 2 * Math.PI, false);
-            ctx.lineWidth = 0.5;
-            ctx.strokeStyle = highlightNodes.has(node)
-              ? Color('#FFF').grayscale().string()
-              : '#FFF';
-            ctx.stroke();
-
-            // node label
-            let fontSize = 16;
-            const offset = 2;
-            ctx.font = `${fontSize}px Arial`;
-            const nodeLabel = getNodeDisplayName(node as GraphNode);
-            let textWidth = ctx.measureText(nodeLabel).width - offset;
-            do {
-              fontSize -= 1;
-              ctx.font = `${fontSize}px Arial`;
-              textWidth = ctx.measureText(nodeLabel).width - offset;
-            } while (textWidth > size && fontSize > 0);
-            ctx.fillStyle = '#fff';
-            if (fontSize <= 0) {
-              fontSize = 1;
-              ctx.font = `${fontSize}px Arial`;
-              textWidth = ctx.measureText(nodeLabel).width - offset;
-            }
-            ctx.fillText(
-              nodeLabel,
-              x - (textWidth + offset) / 2,
-              y + fontSize / 2,
-            );
-          }}
-          nodePointerAreaPaint={(node, color, ctx) => {
-            const x = node.x || 0;
-            const y = node.y || 0;
-            const size = Math.min(node.value, NODE_MAX);
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(x, y, size, 0, 2 * Math.PI, false);
-            ctx.fill();
-          }}
-          linkLabel="id"
-          linkColor={(link) => {
-            if (resolvedTheme === 'dark') {
-              return highlightLinks.has(link) ? '#585858' : '#383838';
-            } else {
-              return highlightLinks.has(link) ? '#BBB' : '#DDD';
-            }
-          }}
-          linkWidth={(link) => {
-            return highlightLinks.has(link) ? 2 : 1;
-          }}
-          linkDirectionalParticleWidth={(link) => {
-            return highlightLinks.has(link) ? 3 : 0;
-          }}
-          linkDirectionalParticles={2}
-          linkVisibility={(link) => {
-            // @ts-expect-error link.source.properties
-            const sourceEntityType = link.source?.properties?.entity_type || '';
-
-            // @ts-expect-error link.source.properties
-            const tatgetEntityType = link.target?.properties?.entity_type || '';
-            return (
-              activeEntities.includes(sourceEntityType) &&
-              activeEntities.includes(tatgetEntityType)
-            );
           }}
         />
-
-        <CollectionGraphNodeDetail
-          open={!mergeSuggestionOpen && Boolean(activeNode)}
-          node={activeNode}
-          onClose={handleCloseDetail}
-        />
-        {!isMirofish && mergeSuggestion && (
-          <CollectionGraphNodeMerge
-            dataSource={mergeSuggestion}
-            open={mergeSuggestionOpen}
-            onRefresh={getMergeSuggestions}
-            onClose={() => {
-              setActiveNode(undefined);
-              setMergeSuggestionOpen(false);
-            }}
-            onSelectNode={(id: string) => {
-              const n = graphData?.nodes.find(
-                (nod) => nod.id === id || nod.properties?.entity_name === id,
-              );
-              if (n) setActiveNode(n);
-            }}
-          />
-        )}
-      </Card>
+      )}
     </div>
   );
 };

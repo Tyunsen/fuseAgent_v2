@@ -11,6 +11,7 @@ import { useEffect, useRef } from 'react';
 import {
   buildReferenceLocationLabel,
   PreparedReferenceRow,
+  TraceConclusion,
 } from './message-answer-support.types';
 
 export const MessageReferenceCard = ({
@@ -19,12 +20,16 @@ export const MessageReferenceCard = ({
   expandedRowIds,
   onActivateRow,
   onToggleRow,
+  conclusionMap = {},
+  showHeader = true,
 }: {
   rows: PreparedReferenceRow[];
   activeRowIds: string[];
   expandedRowIds: string[];
   onActivateRow: (rowId: string) => void;
   onToggleRow: (rowId: string) => void;
+  conclusionMap?: Record<string, TraceConclusion[]>;
+  showHeader?: boolean;
 }) => {
   const t = useTranslations('page_chat.answer_support');
   const rowRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -42,17 +47,25 @@ export const MessageReferenceCard = ({
 
   return (
     <section className="bg-background rounded-xl border shadow-xs">
-      <div className="flex items-center justify-between border-b px-4 py-3">
-        <div className="text-sm font-medium">{t('evidence_title')}</div>
-        <Badge variant="secondary" className="rounded-full">
-          {rows.length}
-        </Badge>
-      </div>
+      {showHeader ? (
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <div className="text-sm font-medium">{t('evidence_title')}</div>
+          <Badge variant="secondary" className="rounded-full">
+            {rows.length}
+          </Badge>
+        </div>
+      ) : null}
 
       <div className="space-y-2 p-3">
+        {!rows.length ? (
+          <div className="text-muted-foreground rounded-lg border border-dashed px-3 py-6 text-sm">
+            {t('empty_reasons.no_references')}
+          </div>
+        ) : null}
         {rows.map((row, index) => {
           const active = activeRowIds.includes(row.id);
           const expanded = expandedRowIds.includes(row.id);
+          const relatedConclusions = conclusionMap[row.id] || [];
           const locationLabel = buildReferenceLocationLabel(
             row,
             t('paragraph_not_precise'),
@@ -92,6 +105,19 @@ export const MessageReferenceCard = ({
                         </Badge>
                       )}
                     </div>
+                    {relatedConclusions.length ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {relatedConclusions.map((conclusion) => (
+                          <Badge
+                            key={conclusion.id}
+                            variant="secondary"
+                            className="rounded-full bg-slate-100 text-slate-700"
+                          >
+                            {conclusion.title}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
                     <p className="text-muted-foreground mt-2 line-clamp-2 text-sm leading-6">
                       {row.snippet || t('no_passage')}
                     </p>

@@ -1616,7 +1616,7 @@ INSERT INTO llm_provider_models (
     provider_name, api, model, custom_llm_provider, context_window, max_input_tokens, max_output_tokens, tags,
     gmt_created, gmt_updated
 ) VALUES (
-    'anthropic', 'completion', 'claude-3-7-sonnet-20250219', 'anthropic', 200000, 200000, 64000, '["vision", "enable_for_collection", "enable_for_agent", "__autogen__"]'::jsonb,
+    'anthropic', 'completion', 'claude-3-7-sonnet-20250219', 'anthropic', 200000, 200000, 64000, '["vision", "__autogen__"]'::jsonb,
     NOW(), NOW()
 )
 ON CONFLICT (provider_name, api, model) DO UPDATE SET
@@ -1781,7 +1781,7 @@ INSERT INTO llm_provider_models (
     provider_name, api, model, custom_llm_provider, context_window, max_input_tokens, max_output_tokens, tags,
     gmt_created, gmt_updated
 ) VALUES (
-    'anthropic', 'completion', 'claude-opus-4-20250514', 'anthropic', 200000, 200000, 32000, '["vision", "enable_for_agent", "__autogen__"]'::jsonb,
+    'anthropic', 'completion', 'claude-opus-4-20250514', 'anthropic', 200000, 200000, 32000, '["vision", "__autogen__"]'::jsonb,
     NOW(), NOW()
 )
 ON CONFLICT (provider_name, api, model) DO UPDATE SET
@@ -1856,7 +1856,7 @@ INSERT INTO llm_provider_models (
     provider_name, api, model, custom_llm_provider, context_window, max_input_tokens, max_output_tokens, tags,
     gmt_created, gmt_updated
 ) VALUES (
-    'anthropic', 'completion', 'claude-sonnet-4-20250514', 'anthropic', 1000000, 1000000, 64000, '["vision", "enable_for_collection", "enable_for_agent", "__autogen__"]'::jsonb,
+    'anthropic', 'completion', 'claude-sonnet-4-20250514', 'anthropic', 1000000, 1000000, 64000, '["vision", "__autogen__"]'::jsonb,
     NOW(), NOW()
 )
 ON CONFLICT (provider_name, api, model) DO UPDATE SET

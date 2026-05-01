@@ -5,6 +5,7 @@ import {
 } from '@/components/page-container';
 import { getTranslations } from 'next-intl/server';
 import { CollectionHeader } from '../collection-header';
+import { CollectionGraphStatusAlert } from '../collection-graph-status-alert';
 import { CollectionGraph } from './collection-graph';
 
 export default async function Page() {
@@ -26,6 +27,7 @@ export default async function Page() {
       <div className="flex h-[calc(100vh-48px)] flex-col px-0">
         <CollectionHeader className="w-full" />
         <PageContent className="flex w-full flex-1 flex-col">
+          <CollectionGraphStatusAlert />
           <CollectionGraph marketplace={false} />
         </PageContent>
       </div>

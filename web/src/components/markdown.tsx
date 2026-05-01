@@ -286,10 +286,12 @@ export const mdRemarkPlugins: any = [
 export const Markdown = ({
   rehypeToc = false,
   security = false,
+  onCitationClick,
   children,
 }: {
   rehypeToc?: boolean;
   security?: boolean;
+  onCitationClick?: (payload: { rowId: string; index?: number }) => void;
   children?: string;
 }) => {
   const rehypePlugins = useMemo(() => {
@@ -305,13 +307,54 @@ export const Markdown = ({
     return plugins;
   }, [rehypeToc]);
 
+  const linkComponent = useCallback(
+    (props: JSX.IntrinsicElements['a']) => {
+      const href = props.href || '';
+      if (href.startsWith('citation://')) {
+        const citationAnchorProps = props as JSX.IntrinsicElements['a'] & {
+          'data-citation-index'?: string | string[];
+        };
+        const rowId = decodeURIComponent(href.replace(/^citation:\/\//, ''));
+        const indexValue = Array.isArray(
+          citationAnchorProps['data-citation-index'],
+        )
+          ? citationAnchorProps['data-citation-index'][0]
+          : citationAnchorProps['data-citation-index'];
+        const parsedIndex =
+          typeof indexValue === 'string' ? Number(indexValue) : undefined;
+        return (
+          <button
+            type="button"
+            className="mx-0.5 inline-flex cursor-pointer items-center rounded-sm text-sky-700 transition-colors hover:text-sky-900 hover:underline"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onCitationClick?.({
+                rowId,
+                index:
+                  typeof parsedIndex === 'number' && Number.isFinite(parsedIndex)
+                    ? parsedIndex
+                    : undefined,
+              });
+            }}
+          >
+            {props.children}
+          </button>
+        );
+      }
+
+      return security ? securityLink(props) : unSecurityLink(props);
+    },
+    [onCitationClick, security],
+  );
+
   return (
     <ReactMarkdown
       rehypePlugins={rehypePlugins}
       remarkPlugins={mdRemarkPlugins}
       urlTransform={(url) => url}
       components={{
-        a: security ? securityLink : unSecurityLink,
+        a: linkComponent,
         ...mdComponents,
       }}
     >

@@ -1,4 +1,11 @@
 import json
+import sys
+import types
+from pathlib import Path
+
+agent_pkg = types.ModuleType("aperag.agent")
+agent_pkg.__path__ = [str(Path(__file__).resolve().parents[3] / "aperag" / "agent")]
+sys.modules.setdefault("aperag.agent", agent_pkg)
 
 from aperag.agent.tool_reference_extractor import extract_tool_call_references
 

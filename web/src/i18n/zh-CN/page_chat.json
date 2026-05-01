@@ -2,27 +2,56 @@
   "metadata": {
     "title": "会话"
   },
-
   "hello_world": "Hi, I'm ApeRAG.",
-  "rag_description": "ApeRAG是一个结合图检索、向量搜索和全文搜索技术，提供混合检索、知识管理和企业AI应用解决方案。",
-
-  "mention_a_collection": "输入@关联相关知识库...",
-
+  "rag_description": "ApeRAG 是一个结合图检索、向量检索和全文检索能力的生产级 RAG 平台，支持混合检索、知识管理和企业级 AI 应用。",
+  "mention_a_collection": "输入 @ 关联相关知识库...",
   "display_empty_title": "新会话",
-
   "no_collection_was_found": "未找到相关知识库",
-
   "web_search": "网络检索",
   "web_search_is_enabled": "网络检索已启用",
   "web_search_is_disabled": "网络检索已禁用",
-
-  "references": "参考文献",
-
+  "references": "参考资料",
+  "answer_support": {
+    "graph_label": "Knowledge Graph",
+    "graph_title": "回答关联图谱",
+    "entity_graph_title": "本次回答知识图谱子图",
+    "timeline_graph_title": "时间甘特图",
+    "event_table_title": "关键事件时间表",
+    "event_timeline_title": "事件时间线",
+    "event_gantt_title": "事件甘特图",
+    "graph_loading": "正在加载回答图谱...",
+    "graph_empty": "当前回答暂时没有可展示的关联图谱。",
+    "evidence_label": "证据",
+    "evidence_title": "参考文档来源",
+    "source_list_hint": "默认收起，可展开查看本次回答引用的文档来源。",
+    "show_sources": "展开",
+    "hide_sources": "收起",
+    "passage_label": "原文片段",
+    "page": "第 {page} 页",
+    "no_passage": "这条来源暂时没有可展开的原文片段。",
+    "paragraph_not_precise": "暂未精确到具体段落",
+    "open_source": "查看原文",
+    "source_focus_title": "来源定位",
+    "source_focus_description": "已跳转到这条回答实际引用的原文位置。",
+    "no_exact_excerpt": "当前来源只提供位置线索，暂时无法直接展开更精确的原文片段。",
+    "empty_reasons": {
+      "no_references": "当前回答还没有可用的引用来源。",
+      "graph_unavailable": "当前图谱暂不可用，但答案和来源仍可查看。",
+      "graph_linking_unavailable": "当前来源暂时还无法回链到图谱证据。",
+      "no_matching_graph_elements": "当前引用段落没有匹配到可展示的图谱元素。"
+    },
+    "recall_types": {
+      "vector_search": "向量",
+      "fulltext_search": "全文",
+      "graph_search": "图谱",
+      "summary_search": "摘要",
+      "vision_search": "视觉",
+      "search_collection": "检索"
+    }
+  },
   "feedback": {
     "title": "反馈意见",
-
     "choose_a_category": "请选择反馈类别",
-
     "Harmful": {
       "title": "有害内容",
       "description": "宣扬危险、暴力或歧视性行为"
@@ -43,7 +72,6 @@
       "title": "其他问题",
       "description": "上述类别未涵盖的其他问题"
     },
-
     "share_your_feedback": "分享您的反馈",
     "share_your_feedback_placeholder": "请提供反馈意见，帮助我们持续改进体验"
   }
